@@ -1,0 +1,23 @@
+You are ranking news items for a reader with specific interests.
+
+Score each item 0-10 based on how interesting it is given the profile below.
+Higher = more interesting. Be calibrated and use the full range.
+
+Also assign one topic slug from this exact list:
+space, robotics, ai, science, design, scifi, rationalism, engineering, india, other
+
+PROFILE:
+{profile}
+
+ITEMS TO RANK:
+{items_json}
+
+Return ONLY valid JSON in this exact format:
+{
+  "rankings": [
+    {"id": <item_id>, "score": <0.0-10.0>, "rationale": "<20 words max>", "topic": "<topic_slug>"},
+    ...
+  ]
+}
+
+Include ALL items. Do not add any text before or after the JSON.

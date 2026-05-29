@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title }} — FeedsAI{% endblock %}
+{% block content %}
+<h1>{{ item.title }}</h1>
+<p class="meta">
+  <a href="{{ item.url }}" target="_blank" rel="noopener">Original article &#8599;</a>
+  {% if item.author %} &middot; {{ item.author }}{% endif %}
+</p>
+
+{% if item.excerpt %}
+<p>{{ item.excerpt }}</p>
+{% endif %}
+
+{% if item.ai_summary %}
+<h2>AI Summary</h2>
+<p>{{ item.ai_summary }}</p>
+{% endif %}
+
+<p><a href="/">&larr; Back to digest</a></p>
+{% endblock %}

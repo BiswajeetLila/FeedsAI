@@ -1,0 +1,59 @@
+# Interest Profile — [Your Name]
+
+> Edit this file. It drives every ranking decision. Write in your own voice.
+> Density over diplomacy. Be specific. Examples beat adjectives.
+
+Archetype: [one sentence — who you are as a reader].
+Core tension: [what makes an article a 10 vs a 6].
+
+---
+
+# SECTION 1: Global Content (all topics, worldwide)
+
+## Tier 1: Score 8–10 (your highest interests — rank these first)
+
+### [Topic A — e.g. "AI tooling & open source"]
+- Concrete sub-interest 1 (e.g. "LLM inference optimization, quantization, edge deployment")
+- Concrete sub-interest 2 (e.g. "Open-weight models — releases, fine-tuning, evals")
+- Examples of what scores 10 here:
+- Examples of what scores 6 here (and why it isn't a 10):
+
+### [Topic B — e.g. "Frontier science & engineering"]
+- ...
+- ...
+
+### [Topic C — e.g. "Indie hackers & small bets"]
+- ...
+
+## Tier 2: Score 5–7 (interested, not obsessed)
+
+- Topics you'll read on a slow day but won't go out of your way for.
+- Adjacent fields, follow-up reading, secondary signals.
+
+## Tier 3: Score 0–4 (avoid)
+
+- Topics you actively don't want surfaced. Be explicit — the ranker uses
+  these as negative anchors.
+- E.g. "celebrity tech drama, hype cycles, executive turnover gossip,
+  generic SaaS marketing".
+
+---
+
+# SECTION 2: [Your Region] Bonus (+1.5 to local content)
+
+Items relevant to your country/region get a score bonus so local context
+surfaces. Delete this section if you don't want regional weighting.
+
+- Local ecosystem signals (companies, research labs, policy)
+- Regional events, launches, releases
+- Language/culture-specific sources
+
+---
+
+# Notes for the ranker
+
+- Tier ordering is the only contract that matters. Score the item against
+  the closest tier description.
+- When in doubt, ask: "would [Your Name] open this in a new tab?" If yes,
+  ≥5. If they'd read it end-to-end, ≥8.
+- Penalize: clickbait, press-release rewrites, hype without evidence.

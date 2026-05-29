@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Status — FeedsAI{% endblock %}
+{% block head_extra %}<meta http-equiv="refresh" content="10">{% endblock %}
+{% block content %}
+<h2>System Status <span class="live-dot" title="Server is alive">&#x25CF;</span></h2>
+<p class="meta">Booted {{ boot_time }} &middot; up {{ uptime }} &middot; auto-refresh 10s &middot;
+  <a href="/logs">view logs &rarr;</a> &middot;
+  <a href="/status.json">JSON</a>
+</p>
+
+{% if fetch_in_progress %}
+<div class="fetch-banner">
+  <span class="spinner"></span>
+  Fetching now &middot; started {{ fetch_started }} &middot; {{ fetch_elapsed }}s elapsed
+</div>
+{% elif is_stale %}
+<div class="stale-banner">
+  &#9888; Feed data is stale (last fetch &gt;2h ago).
+  <button class="fetch-btn" onclick="triggerFetch(this)">Fetch now</button>
+</div>
+{% else %}
+<div class="meta" style="margin-top:0.5rem">
+  <button class="fetch-btn" onclick="triggerFetch(this)">Fetch now</button>
+  <span style="margin-left:0.75rem">last finished {{ fetch_finished }}{% if fetch_last_summary %} ({{ fetch_last_summary }}){% endif %}</span>
+</div>
+{% endif %}
+
+{% if fetch_last_error %}
+<div class="stale-banner">Last fetch error: <code>{{ fetch_last_error }}</code></div>
+{% endif %}
+
+<h3 style="margin-top:1.5rem">Server</h3>
+<div class="status-grid">
+  <div class="stat-card"><div class="label">Uptime</div><div class="value" style="font-size:1.1rem">{{ uptime }}</div></div>
+  <div class="stat-card"><div class="label">Requests served</div><div class="value">{{ request_total }}</div></div>
+  <div class="stat-card"><div class="label">Last request</div>
+    <div class="value" style="font-size:0.9rem">{{ last_request_status }} {{ last_request_path }}</div>
+  </div>
+  <div class="stat-card"><div class="label">By status</div>
+    <div class="value" style="font-size:0.9rem">
+      {% for code, count in status_by_code.items() %}{{ code }}:{{ count }} {% endfor %}
+      {% if not status_by_code %}—{% endif %}
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:1.5rem">Content</h3>
+<div class="status-grid">
+  <div class="stat-card"><div class="label">Last fetch</div><div class="value" style="font-size:1rem">{{ last_fetch }}</div></div>
+  <div class="stat-card"><div class="label">Total items</div><div class="value">{{ item_count }}</div></div>
+  <div class="stat-card"><div class="label">Sources</div><div class="value">{{ source_count }}</div></div>
+  <div class="stat-card"><div class="label">Ranked (24h)</div><div class="value">{{ ranked_today }}</div></div>
+  <div class="stat-card"><div class="label">Summarized</div><div class="value">{{ summarized }}</div></div>
+  <div class="stat-card"><div class="label">Liked</div><div class="value">{{ liked_count }}</div></div>
+</div>
+
+<h3 style="margin-top:1.5rem">LLM calls</h3>
+<table class="llm-table">
+  <thead><tr><th>Model</th><th>Calls</th><th>OK</th><th>Avg latency</th><th>Errors</th><th>Last error</th></tr></thead>
+  <tbody>
+  {% for model, s in llm_stats.items() %}
+    <tr>
+      <td><code>{{ model }}</code></td>
+      <td>{{ s.calls }}</td>
+      <td>{{ s.successes }}</td>
+      <td>{{ s.avg_latency_s }}s</td>
+      <td>{% for k, v in s.errors.items() %}{{ k }}:{{ v }} {% endfor %}{% if not s.errors %}—{% endif %}</td>
+      <td>{{ s.last_error or "—" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h3 style="margin-top:1.5rem">Fetch schedule (Windows Task Scheduler)</h3>
+{% if scheduled_tasks %}
+<table class="llm-table">
+  <thead><tr><th>Task</th><th>State</th><th>Last run</th><th>Next run</th></tr></thead>
+  <tbody>
+  {% for t in scheduled_tasks %}
+    <tr>
+      <td><code>{{ t.name }}</code></td>
+      <td>{{ t.state }}</td>
+      <td>{{ t.last }}</td>
+      <td>{{ t.next }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="meta">No scheduled tasks registered. Run:<br>
+  <code>powershell -ExecutionPolicy Bypass -File scripts\register_task.ps1</code>
+</p>
+{% endif %}
+
+<p style="margin-top:1.5rem;font-size:0.85rem;color:#888">
+  <a href="/">&larr; Back to digest</a>
+</p>
+
+<script>
+async function triggerFetch(btn) {
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = 'Triggering...';
+  try {
+    const r = await fetch('/fetch/trigger', {method: 'POST'});
+    const data = await r.json();
+    if (data.queued) {
+      btn.textContent = 'Fetch started';
+    } else {
+      btn.textContent = 'Already running';
+    }
+    setTimeout(() => location.reload(), 1500);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = old;
+    alert('Trigger failed: ' + e);
+  }
+}
+</script>
+{% endblock %}

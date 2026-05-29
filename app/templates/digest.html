@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}FeedsAI — Digest{% endblock %}
+{% block content %}
+<p class="meta" style="margin-bottom:0.75rem">
+  Last updated: {{ last_updated }}
+  {% if is_stale %}<span class="stale-warning">&#9888;&#65039; Feed data is stale (&gt;2h old)</span>{% endif %}
+</p>
+
+<nav class="topic-tabs">
+  <a href="/" class="tab {% if not active_topic %}tab-active{% endif %}">All</a>
+  {% for slug, label in topics %}
+  <a href="/?topic={{ slug }}" class="tab {% if active_topic == slug %}tab-active{% endif %}">{{ label }}</a>
+  {% endfor %}
+</nav>
+
+{% if not items %}
+  <div class="empty-state">
+    {% if never_fetched %}
+      <p>No data yet. Run: <code>python scripts/fetch.py</code></p>
+    {% else %}
+      <p>Nothing scored above threshold in the last 24 hours{% if active_topic %} for topic "{{ active_topic }}"{% endif %}.</p>
+    {% endif %}
+  </div>
+{% endif %}
+
+<div id="items-list">
+{% for item in items %}
+<div class="item {% if item.is_read %}read{% endif %}"
+     id="item-{{ item.id }}"
+     hx-get="/item/{{ item.id }}/summary"
+     hx-target="#drawer-{{ item.id }}"
+     hx-swap="innerHTML show:#drawer-{{ item.id }}:top"
+     hx-trigger="click">
+  <div class="item-header">
+    <span class="score-badge score-{{ item.tier }}">{{ item.tier_label }}</span>
+    <span class="item-title">{{ item.title }}</span>
+    {% if item.cluster_size and item.cluster_size > 1 %}
+      <a class="cluster-link" href="/item/{{ item.id }}">{{ item.cluster_size }} related &#8599;</a>
+    {% endif %}
+    <a href="{{ item.url }}"
+       target="_blank"
+       rel="noopener noreferrer"
+       class="read-original headline-link"
+       onclick="event.stopPropagation(); navigator.sendBeacon('/activity/{{ item.id }}/linked_out');">
+      Read original &#x2197;
+    </a>
+  </div>
+  <div class="item-meta">
+    {% if item.topic and not active_topic %}<span class="topic-tag">{{ item.topic }}</span>{% endif %}
+    {{ item.source_title }} &middot; {{ item.age }}
+  </div>
+  {% if item.excerpt %}<p class="item-excerpt">{{ item.excerpt }}</p>{% endif %}
+  <div id="drawer-{{ item.id }}" class="drawer">
+    <span class="loading-skeleton">Generating summary&hellip;</span>
+  </div>
+</div>
+{% endfor %}
+</div>
+
+{% if has_more %}
+<div id="show-more-container">
+  <button class="show-more-btn"
+          hx-get="/digest/more?offset={{ next_offset }}&limit=10&topic={{ active_topic }}"
+          hx-target="#show-more-container"
+          hx-swap="outerHTML">
+    Show more
+  </button>
+</div>
+{% endif %}
+
+{% endblock %}
+{% block scripts %}
+<script src="https://unpkg.com/htmx.org@1.9.12"></script>
+<script>
+  // Show drawer after HTMX swap
+  document.body.addEventListener('htmx:afterSwap', function(evt) {
+    var drawer = evt.detail.target;
+    if (drawer && drawer.classList.contains('drawer')) {
+      drawer.classList.add('drawer-loaded');
+    }
+  });
+
+  // Dwell tracking
+  var dwellTimers = {};
+  var dwellSeconds = {};
+
+  function startDwell(itemId) {
+    if (dwellTimers[itemId]) return;
+    dwellSeconds[itemId] = dwellSeconds[itemId] || 0;
+    var start = Date.now();
+    dwellTimers[itemId] = setInterval(function() {
+      var elapsed = (Date.now() - start) / 1000;
+      dwellSeconds[itemId] = elapsed;
+      if (Math.floor(elapsed) % 30 === 0 && elapsed > 0) {
+        navigator.sendBeacon('/activity/' + itemId + '/opened?dwell_seconds=' + Math.floor(elapsed));
+      }
+    }, 1000);
+  }
+
+  function stopDwell(itemId) {
+    if (dwellTimers[itemId]) {
+      clearInterval(dwellTimers[itemId]);
+      delete dwellTimers[itemId];
+    }
+  }
+
+  document.body.addEventListener('htmx:afterSwap', function(evt) {
+    var drawer = evt.detail.target;
+    if (drawer && drawer.classList.contains('drawer')) {
+      var item = drawer.closest('.item');
+      if (item) {
+        var itemId = item.id.replace('item-', '');
+        startDwell(itemId);
+      }
+    }
+  });
+
+  window.addEventListener('beforeunload', function() {
+    Object.keys(dwellSeconds).forEach(function(itemId) {
+      if (dwellSeconds[itemId] > 0) {
+        navigator.sendBeacon('/activity/' + itemId + '/opened?dwell_seconds=' + Math.floor(dwellSeconds[itemId]));
+      }
+    });
+  });
+
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+      Object.keys(dwellTimers).forEach(stopDwell);
+    }
+  });
+
+  // Like toggle
+  function likeArticle(itemId, btn) {
+    btn.disabled = true;
+    fetch('/like/' + itemId, {method: 'POST'})
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        btn.disabled = false;
+        if (data.liked) {
+          btn.innerHTML = '&#10084; Liked';
+          btn.classList.add('liked');
+        } else {
+          btn.innerHTML = '&#9825; Like';
+          btn.classList.remove('liked');
+        }
+      })
+      .catch(function() { btn.disabled = false; });
+  }
+</script>
+{% endblock %}

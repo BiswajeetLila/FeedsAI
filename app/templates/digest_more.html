@@ -1,0 +1,41 @@
+{% for item in items %}
+<div class="item {% if item.is_read %}read{% endif %}"
+     id="item-{{ item.id }}"
+     hx-get="/item/{{ item.id }}/summary"
+     hx-target="#drawer-{{ item.id }}"
+     hx-swap="innerHTML show:#drawer-{{ item.id }}:top"
+     hx-trigger="click">
+  <div class="item-header">
+    <span class="score-badge score-{{ item.tier }}">{{ item.tier_label }}</span>
+    <span class="item-title">{{ item.title }}</span>
+    {% if item.cluster_size and item.cluster_size > 1 %}
+      <a class="cluster-link" href="/item/{{ item.id }}">{{ item.cluster_size }} related &#8599;</a>
+    {% endif %}
+    <a href="{{ item.url }}"
+       target="_blank"
+       rel="noopener noreferrer"
+       class="read-original headline-link"
+       onclick="event.stopPropagation(); navigator.sendBeacon('/activity/{{ item.id }}/linked_out');">
+      Read original &#x2197;
+    </a>
+  </div>
+  <div class="item-meta">
+    {% if item.topic %}<span class="topic-tag">{{ item.topic }}</span>{% endif %}
+    {{ item.source_title }} &middot; {{ item.age }}
+  </div>
+  {% if item.excerpt %}<p class="item-excerpt">{{ item.excerpt }}</p>{% endif %}
+  <div id="drawer-{{ item.id }}" class="drawer">
+    <span class="loading-skeleton">Generating summary&hellip;</span>
+  </div>
+</div>
+{% endfor %}
+{% if has_more %}
+<div id="show-more-container">
+  <button class="show-more-btn"
+          hx-get="/digest/more?offset={{ next_offset }}&limit={{ limit }}&topic={{ active_topic }}"
+          hx-target="#show-more-container"
+          hx-swap="outerHTML">
+    Show more
+  </button>
+</div>
+{% endif %}

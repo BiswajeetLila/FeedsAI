@@ -1,0 +1,159 @@
+# sources.yaml.example
+# =====================
+# This file documents the full format for sources.yaml.
+# Copy to sources.yaml and edit to your liking.
+#
+# The app reads sources.yaml on startup (and re-reads it each fetch cycle).
+# Validation is enforced by Pydantic — the app will refuse to start with an
+# invalid config and will print a human-readable error message.
+#
+# FINDING FEED URLS
+# -----------------
+# RSS/Atom:   Look for an RSS icon on the site, or try /feed, /rss, /atom.xml,
+#             /feed.xml appended to the domain. Browser extensions like
+#             "RSS Feed Reader" can auto-detect feeds.
+# HN:         No URL needed — the app fetches the HN API directly.
+# arXiv:      Use standard arXiv query syntax. See:
+#             https://arxiv.org/help/api/user-manual#query_details
+# GitHub:     Use "owner/repo" format from the GitHub URL.
+
+schema_version: 1   # Must be 1 for this version of the app.
+
+sources:
+
+  # -----------------------------------------------------------------------
+  # KIND: rss
+  # Fetches any RSS 2.0 or Atom feed.
+  # Required fields: kind, url
+  # Optional fields: title (displayed in UI; auto-detected from feed if omitted)
+  # -----------------------------------------------------------------------
+  - kind: rss
+    url: https://simonwillison.net/atom/everything/
+    title: Simon Willison      # Optional: override the feed's own title
+
+  - kind: rss
+    url: https://www.quantamagazine.org/feed/
+    # title omitted → app reads it from feed metadata
+
+  # -----------------------------------------------------------------------
+  # KIND: hn
+  # Fetches stories from Hacker News via the official Firebase API.
+  # Required fields: kind
+  # Optional fields:
+  #   filter: "front_page" (default) — top stories on the front page
+  #           More filter values may be added in future versions.
+  #   title: display name (default: "Hacker News")
+  # -----------------------------------------------------------------------
+  - kind: hn
+    filter: front_page          # Currently the only supported value
+    title: Hacker News          # Optional; this is the default
+
+  # -----------------------------------------------------------------------
+  # KIND: arxiv
+  # Fetches papers from arXiv.org using the arXiv API search query syntax.
+  # Required fields: kind, query
+  # Optional fields: title
+  #
+  # QUERY SYNTAX EXAMPLES
+  #   cat:cs.AI              — category filter (AI)
+  #   cat:cs.RO              — robotics
+  #   cat:astro-ph           — astrophysics (all sub-categories)
+  #   cat:astro-ph.SR        — specific sub-category
+  #   ti:diffusion model     — title search
+  #   au:LeCun               — author search
+  #   cat:cs.LG AND ti:RL    — combine with AND/OR/NOT
+  #
+  # Full list of categories: https://arxiv.org/category_taxonomy
+  # -----------------------------------------------------------------------
+  - kind: arxiv
+    query: "cat:cs.AI"
+    title: arXiv cs.AI
+
+  - kind: arxiv
+    query: "cat:cs.RO"
+    title: arXiv Robotics
+
+  - kind: arxiv
+    query: "cat:astro-ph"
+    title: arXiv Astrophysics
+
+  - kind: arxiv
+    query: "cat:cs.AI AND ti:agent"
+    title: arXiv AI Agents
+
+  # -----------------------------------------------------------------------
+  # KIND: github_releases
+  # Fetches release notes from a public GitHub repository.
+  # Required fields: kind, repo
+  # Optional fields: title
+  #
+  # repo format: "owner/repo" — the two path segments from the GitHub URL.
+  # Example: https://github.com/anthropics/claude-code → "anthropics/claude-code"
+  # Only public repos are supported. Private repos require a GitHub token
+  # (see environment variable GITHUB_TOKEN in .env).
+  # -----------------------------------------------------------------------
+  - kind: github_releases
+    repo: anthropics/claude-code
+    title: Claude Code Releases
+
+  - kind: github_releases
+    repo: ollama/ollama
+    title: Ollama Releases
+
+  - kind: github_releases
+    repo: microsoft/vscode
+    # title omitted → defaults to "owner/repo Releases"
+
+  # -----------------------------------------------------------------------
+  # MORE RSS EXAMPLES (commented out — uncomment to enable)
+  # -----------------------------------------------------------------------
+
+  # Science & Physics
+  # - kind: rss
+  #   url: https://phys.org/rss-feed/
+  #   title: phys.org
+
+  # Robotics & Engineering
+  # - kind: rss
+  #   url: https://spectrum.ieee.org/feeds/topic/robotics.rss
+  #   title: IEEE Spectrum Robotics
+
+  # Space
+  # - kind: rss
+  #   url: https://www.nasaspaceflight.com/feed/
+  #   title: NASA Spaceflight
+
+  # Game Development
+  # - kind: rss
+  #   url: https://www.gamedeveloper.com/rss.xml
+  #   title: Game Developer
+
+  # Game Art
+  # - kind: rss
+  #   url: https://80.lv/feed/
+  #   title: 80.lv Game Art
+
+  # Tech Analysis
+  # - kind: rss
+  #   url: https://stratechery.com/feed/
+  #   title: Stratechery
+
+  # -----------------------------------------------------------------------
+  # NOTES ON DEAD / FLAKY FEEDS
+  # -----------------------------------------------------------------------
+  # Known dead at time of release — do not add unless they come back:
+  #   https://openai.com/news/rss.xml         (SSL cert expired)
+  #   https://www.anthropic.com/news/rss.xml  (malformed XML)
+  # Track the vendor blog page directly if you want this content.
+
+  # -----------------------------------------------------------------------
+  # NOTES ON DEFERRED / UNSUPPORTED SOURCE TYPES
+  # -----------------------------------------------------------------------
+  # Reddit feeds (r/gamedev, r/MachineLearning, etc.) are NOT currently
+  # supported as a first-class kind. Reddit's API requires OAuth authentication
+  # since 2023. If you want Reddit content, use an unofficial RSS bridge
+  # service such as https://rss-bridge.org and add it as kind: rss.
+  #
+  # Twitter/X, LinkedIn, and other social platforms are not supported.
+  # YouTube channels can sometimes be subscribed via RSS using the channel's
+  # Atom feed URL (find it via the channel's page source).

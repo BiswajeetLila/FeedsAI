@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Logs — FeedsAI{% endblock %}
+{% block head_extra %}<meta http-equiv="refresh" content="3">{% endblock %}
+{% block content %}
+<h2>Live logs <span class="live-dot" title="Server is alive"></span></h2>
+<p class="meta">In-process ring buffer &middot; last {{ lines|length }} of {{ n }} requested &middot; auto-refresh 3s &middot;
+  <a href="/logs.txt">plain text</a> &middot;
+  <a href="/status">status &rarr;</a>
+</p>
+<div class="log-tail" id="log-tail">
+{% for line in lines %}<span class="log-line{% if ' WARNING ' in line %} warn{% elif ' ERROR ' in line %} err{% endif %}">{{ line }}</span>
+{% endfor %}{% if not lines %}<em>No logs yet.</em>{% endif %}</div>
+<script>
+  // Keep scrolled to bottom
+  var el = document.getElementById('log-tail');
+  if (el) el.scrollTop = el.scrollHeight;
+</script>
+{% endblock %}
