@@ -1,19 +1,28 @@
-# Issue tracker: Local Markdown
+# Issue tracker: GitHub
 
-Issues and PRDs for this repo live as markdown files in `.scratch/`.
+Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all issue-tracker operations.
+
+## Prerequisites
+
+- `gh` must be installed and authenticated.
+- Run issue commands from a clone with a GitHub remote configured, or pass `--repo OWNER/REPO` explicitly.
+- This repo should not use `.scratch/` as the canonical issue tracker.
 
 ## Conventions
 
-- One feature per directory: `.scratch/<feature-slug>/`
-- The PRD is `.scratch/<feature-slug>/PRD.md`
-- Implementation issues are `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01`
-- Triage state is recorded as a `Status:` line near the top of each issue file (see `triage-labels.md` for the role strings)
-- Comments and conversation history append to the bottom of the file under a `## Comments` heading
+- **Create an issue**: `gh issue create --title "..." --body "..."`
+- **Read an issue**: `gh issue view <number> --comments --json number,title,body,labels,comments,state`
+- **List issues**: `gh issue list --state open --json number,title,body,labels`
+- **Comment on an issue**: `gh issue comment <number> --body "..."`
+- **Apply or remove labels**: `gh issue edit <number> --add-label "..."` or `--remove-label "..."`
+- **Close an issue**: `gh issue close <number> --comment "..."`
+
+If a command needs a multi-line body, write the body to a temporary file or use the shell's native multi-line input support.
 
 ## When a skill says "publish to the issue tracker"
 
-Create a new file under `.scratch/<feature-slug>/` (creating the directory if needed).
+Create a GitHub issue.
 
 ## When a skill says "fetch the relevant ticket"
 
-Read the file at the referenced path. The user will normally pass the path or the issue number directly.
+Run `gh issue view <number> --comments --json number,title,body,labels,comments,state`.

@@ -23,7 +23,7 @@ with Gemini CLI, presents a scored digest at `localhost:8000`.
 
 ### Issue tracker
 
-Issues live as local markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues using the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

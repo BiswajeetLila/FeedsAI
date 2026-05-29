@@ -15,11 +15,11 @@ Single-context repo:
 
 ```
 /
-├── CONTEXT.md
-├── docs/adr/
-│   ├── 0001-sqlite-wal-mode.md
-│   └── 0002-claude-cli-subprocess.md
-└── app/
++-- CONTEXT.md
++-- docs/adr/
+|   +-- 0001-sqlite-wal-mode.md
+|   +-- 0002-claude-cli-subprocess.md
++-- app/
 ```
 
 ## Use the glossary's vocabulary

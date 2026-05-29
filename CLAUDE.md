@@ -43,7 +43,7 @@ The script auto-stops any stale uvicorn already bound to port 8000.
 
 ### Issue tracker
 
-Issues live as local markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues using the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
