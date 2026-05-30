@@ -2,6 +2,8 @@
 
 > A local-first, LLM-ranked feed reader you tune with a markdown file.
 
+New user? Start with [USER_README.md](USER_README.md). Product plan: [docs/next-product-plan.md](docs/next-product-plan.md).
+
 Fork this template, write a `profile.md` describing what you care about, point
 `sources.yaml` at your feeds, run. The app fetches RSS / Hacker News / arXiv /
 GitHub release feeds, ranks every item 0–10 with Claude CLI against your
