@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Ask Feed - FeedsAI{% endblock %}
+{% block content %}
+<h2>Ask Feed</h2>
+<form class="ask-form" method="post" action="/ask">
+  <textarea name="question" rows="3" placeholder="What changed in AI tools this week?">{{ question }}</textarea>
+  <button class="primary-btn" type="submit">Ask</button>
+</form>
+
+{% if error %}
+<div class="stale-banner">LLM call failed: <code>{{ error }}</code></div>
+{% endif %}
+
+{% if answer %}
+<section class="answer-panel">
+  <h3>Answer</h3>
+  <p>{{ answer }}</p>
+</section>
+{% endif %}
+
+{% if items_used %}
+<h3 style="margin-top:1.25rem">Items Used</h3>
+<ol class="source-list">
+  {% for item in items_used %}
+  <li>
+    <a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.title }}</a>
+    <span class="meta">{{ item.source_title or "unknown" }} &middot; score {{ "%.1f"|format(item.score) }}</span>
+  </li>
+  {% endfor %}
+</ol>
+{% endif %}
+{% endblock %}

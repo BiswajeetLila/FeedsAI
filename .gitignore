@@ -59,6 +59,7 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+.pytest_tmp/
 cover/
 
 # Type checkers
@@ -80,6 +81,8 @@ dmypy.json
 Thumbs.db
 
 # Project-specific data files
+profile.md
+sources.yaml
 data/feeds.db
 data/feeds.db-shm
 data/feeds.db-wal

@@ -5,13 +5,12 @@
 Fork this template, write a `profile.md` describing what you care about, point
 `sources.yaml` at your feeds, run. The app fetches RSS / Hacker News / arXiv /
 GitHub release feeds, ranks every item 0–10 with Claude CLI against your
-profile, summarizes the top picks with Gemini CLI (Claude fallback), and
-serves a scored digest at `http://localhost:8000`.
+profile, and serves a scored digest at `http://localhost:8000`.
 
 No cloud database. No API keys to manage. No analytics. Runs on your machine,
 reads your data, dies when you close it.
 
-**Stack:** Python 3.11+ · FastAPI · HTMX · SQLite · Claude CLI · Gemini CLI · Windows-friendly.
+**Stack:** Python 3.11+ · FastAPI · HTMX · SQLite · Claude CLI · Windows-friendly.
 
 ---
 
@@ -54,8 +53,8 @@ job (Windows) or set up a cron equivalent.
 3. Claude returns a `{"rankings": [{"id": N, "score": 0.0-10.0, "rationale":
    "...", "topic": "..."}]}` per batch. Scores land in `items.score`, the
    tier badge is derived: ≥8 = Top pick, ≥5 = Relevant, else Borderline.
-4. The top 20 scored items are pre-summarized via Gemini CLI (Claude fallback)
-   so the drawer click is instant.
+4. Drawer clicks are instant because they use feed excerpts plus the ranking
+   rationale already produced during scoring.
 5. The digest at `/` shows the top 10 ranked items from the last 7 d, filterable
    by topic tab.
 
@@ -92,10 +91,10 @@ The feed list. Supported `kind:` values:
 See `sources.yaml.example` for the full schema with comments. Add a feed and
 the next fetch picks it up.
 
-### `prompts/rank_v1.txt`, `prompts/summarize_v1.txt`
+### `prompts/rank_v1.txt`
 
-The LLM prompt templates. Edit if rankings start misfiring or summaries are
-flat. Versioned filenames let you A/B compare.
+The LLM ranking prompt template. Edit if rankings start misfiring. Versioned
+filenames let you A/B compare.
 
 ---
 
@@ -137,7 +136,7 @@ Three independent answers:
 
 | When                | What you do                                  | What happens                                                  |
 |---------------------|----------------------------------------------|---------------------------------------------------------------|
-| Morning             | Open `localhost:8000`                        | Read top 10. Click items to expand cached summaries.          |
+| Morning             | Open `localhost:8000`                        | Read top 10. Click items to expand instant feed context.      |
 | Anytime             | `python scripts/fetch.py --verbose`          | Manual refresh — useful when Task Scheduler missed a run.     |
 | Edit `sources.yaml` | Add or remove feeds                          | Next fetch picks up the change.                               |
 | Edit `profile.md`   | Shift interests                              | New items get the new ranking; old scores persist.            |
@@ -152,8 +151,8 @@ Three independent answers:
   fetch state at `data/last_fetch.txt`.
 - No analytics. No telemetry. The web app binds to `127.0.0.1` by default.
 - The only network calls go to: the feed URLs in your `sources.yaml`, the
-  GitHub release API for `github_releases` sources, and the Claude/Gemini
-  CLIs (which talk to Anthropic/Google).
+  GitHub release API for `github_releases` sources, and the Claude CLI
+  (which talks to Anthropic).
 - Want to point at a public IP for phone access? Edit
   `scripts/run_server.ps1` to bind `0.0.0.0` and gate via your own VPN /
   Tailscale / reverse-proxy auth. There is no built-in auth — by design.
@@ -172,7 +171,7 @@ app/
 ├── pipeline.py            # Orchestrator: fetch -> dedup -> rank
 ├── dedup.py               # rapidfuzz title match
 ├── rank.py                # Batch LLM scoring with halving retry
-├── summarize.py           # Lazy per-item AI summary (cached after first call)
+├── summarize.py           # No-LLM drawer insight compatibility helpers
 ├── profile_update.py      # Engagement -> proposed profile.md diff
 ├── ingest/                # rss, hn, arxiv, github_releases
 ├── routes/                # digest, items, status, logs
@@ -200,7 +199,7 @@ docs/                      # Agent conventions (issue tracker, triage, domain)
 | Symptom                                       | Likely cause                                | Fix                                                                  |
 |-----------------------------------------------|---------------------------------------------|----------------------------------------------------------------------|
 | Nothing scored, all "Borderline"              | Claude rate-limited mid-fetch               | Run `scripts/fetch.py --verbose` again later                         |
-| Drawer summary empty or "Summary unavailable" | Both LLMs rate-limited / quota hit          | Quotas reset overnight; next session auto-retries                    |
+| Drawer content is thin                         | Feed did not provide an excerpt             | Open original article; add a better feed if this source is sparse    |
 | 500 error on `/`                              | Template / data shape changed               | Check `/logs` page or `data/server.log`                              |
 | Drawer click does nothing                     | uvicorn died; browser is showing stale HTML | `.\scripts\run_server.ps1 -Detach`, refresh tab                      |
 | `claude` CLI not found                        | PATH issue                                  | `where.exe claude` should point to your install                      |

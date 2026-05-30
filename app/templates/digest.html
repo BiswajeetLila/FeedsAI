@@ -1,16 +1,35 @@
 {% extends "base.html" %}
 {% block title %}FeedsAI — Digest{% endblock %}
 {% block content %}
-<p class="meta" style="margin-bottom:0.75rem">
-  Last updated: {{ last_updated }}
-  {% if is_stale %}<span class="stale-warning">&#9888;&#65039; Feed data is stale (&gt;2h old)</span>{% endif %}
-</p>
+<div class="digest-toolbar">
+  <p class="meta">
+    Last updated: {{ last_updated }}
+    {% if saved_only %}<span class="queue-pill">&#9733; Saved queue</span>{% endif %}
+    {% if is_stale %}<span class="stale-warning">&#9888; Feed data is stale (&gt;2h old)</span>{% endif %}
+    {% if hidden_low_signal and not show_low_signal %}<span class="quality-note">{{ hidden_low_signal }} low-signal hidden</span>{% endif %}
+  </p>
+  <div class="toolbar-actions">
+    {% if show_low_signal %}
+    <a class="quality-toggle" href="/?mode={{ digest_mode }}{% if active_topic %}&topic={{ active_topic }}{% endif %}{% if saved_only %}&saved=1{% endif %}">Hide low-signal</a>
+    {% else %}
+    <a class="quality-toggle" href="/?mode={{ digest_mode }}{% if active_topic %}&topic={{ active_topic }}{% endif %}{% if saved_only %}&saved=1{% endif %}&show_low_signal=1">Show low-signal</a>
+    {% endif %}
+    <button class="fetch-btn" onclick="triggerFetch(this)">Fetch now</button>
+  </div>
+</div>
 
 <nav class="topic-tabs">
-  <a href="/" class="tab {% if not active_topic %}tab-active{% endif %}">All</a>
+  <a href="/?mode={{ digest_mode }}{% if show_low_signal %}&show_low_signal=1{% endif %}" class="tab {% if not active_topic and not saved_only %}tab-active{% endif %}">All</a>
+  <a href="/?saved=1&mode={{ digest_mode }}{% if show_low_signal %}&show_low_signal=1{% endif %}" class="tab {% if saved_only %}tab-active{% endif %}">&#9733; Saved</a>
   {% for slug, label in topics %}
-  <a href="/?topic={{ slug }}" class="tab {% if active_topic == slug %}tab-active{% endif %}">{{ label }}</a>
+  <a href="/?topic={{ slug }}&mode={{ digest_mode }}{% if show_low_signal %}&show_low_signal=1{% endif %}" class="tab {% if active_topic == slug and not saved_only %}tab-active{% endif %}">{{ label }}</a>
   {% endfor %}
+</nav>
+
+<nav class="mode-tabs">
+  <a href="/?mode=ranked{% if active_topic %}&topic={{ active_topic }}{% endif %}{% if saved_only %}&saved=1{% endif %}{% if show_low_signal %}&show_low_signal=1{% endif %}" class="mode-tab {% if digest_mode == 'ranked' %}mode-active{% endif %}">Ranked</a>
+  <a href="/?mode=balanced{% if active_topic %}&topic={{ active_topic }}{% endif %}{% if saved_only %}&saved=1{% endif %}{% if show_low_signal %}&show_low_signal=1{% endif %}" class="mode-tab {% if digest_mode == 'balanced' %}mode-active{% endif %}">Balanced</a>
+  <a href="/?mode=fresh{% if active_topic %}&topic={{ active_topic }}{% endif %}{% if saved_only %}&saved=1{% endif %}{% if show_low_signal %}&show_low_signal=1{% endif %}" class="mode-tab {% if digest_mode == 'fresh' %}mode-active{% endif %}">Fresh</a>
 </nav>
 
 {% if not items %}
@@ -18,14 +37,14 @@
     {% if never_fetched %}
       <p>No data yet. Run: <code>python scripts/fetch.py</code></p>
     {% else %}
-      <p>Nothing scored above threshold in the last 24 hours{% if active_topic %} for topic "{{ active_topic }}"{% endif %}.</p>
+      <p>{% if saved_only %}No saved items yet.{% else %}Nothing scored above threshold in the last 24 hours{% if active_topic %} for topic "{{ active_topic }}"{% endif %}.{% endif %}</p>
     {% endif %}
   </div>
 {% endif %}
 
 <div id="items-list">
 {% for item in items %}
-<div class="item {% if item.is_read %}read{% endif %}"
+<div class="item {% if item.is_read %}read{% endif %} {% if item.is_low_signal %}low-signal{% endif %}"
      id="item-{{ item.id }}"
      hx-get="/item/{{ item.id }}/summary"
      hx-target="#drawer-{{ item.id }}"
@@ -34,6 +53,7 @@
   <div class="item-header">
     <span class="score-badge score-{{ item.tier }}">{{ item.tier_label }}</span>
     <span class="item-title">{{ item.title }}</span>
+    {% if item.is_saved %}<span class="saved-indicator">&#9733;</span>{% endif %}
     {% if item.cluster_size and item.cluster_size > 1 %}
       <a class="cluster-link" href="/item/{{ item.id }}">{{ item.cluster_size }} related &#8599;</a>
     {% endif %}
@@ -49,9 +69,16 @@
     {% if item.topic and not active_topic %}<span class="topic-tag">{{ item.topic }}</span>{% endif %}
     {{ item.source_title }} &middot; {{ item.age }}
   </div>
+  {% if item.reason_chips or item.novelty_label or item.is_low_signal %}
+  <div class="reason-row">
+    {% if item.novelty_label %}<span class="reason-chip novelty">{{ item.novelty_label }}</span>{% endif %}
+    {% for chip in item.reason_chips %}<span class="reason-chip">{{ chip }}</span>{% endfor %}
+    {% if item.is_low_signal %}<span class="reason-chip caution">Low signal</span>{% endif %}
+  </div>
+  {% endif %}
   {% if item.excerpt %}<p class="item-excerpt">{{ item.excerpt }}</p>{% endif %}
   <div id="drawer-{{ item.id }}" class="drawer">
-    <span class="loading-skeleton">Generating summary&hellip;</span>
+    <span class="loading-skeleton">Opening item&hellip;</span>
   </div>
 </div>
 {% endfor %}
@@ -60,7 +87,7 @@
 {% if has_more %}
 <div id="show-more-container">
   <button class="show-more-btn"
-          hx-get="/digest/more?offset={{ next_offset }}&limit=10&topic={{ active_topic }}"
+          hx-get="/digest/more?offset={{ next_offset }}&limit=10&topic={{ active_topic }}&mode={{ digest_mode }}{% if saved_only %}&saved=1{% endif %}{% if show_low_signal %}&show_low_signal=1{% endif %}"
           hx-target="#show-more-container"
           hx-swap="outerHTML">
     Show more
@@ -82,26 +109,40 @@
 
   // Dwell tracking
   var dwellTimers = {};
-  var dwellSeconds = {};
+  var dwellStartedAt = {};
+  var dwellLastSent = {};
+
+  function flushDwell(itemId) {
+    if (!dwellStartedAt[itemId]) return;
+    var elapsed = Math.floor((Date.now() - dwellStartedAt[itemId]) / 1000);
+    var lastSent = dwellLastSent[itemId] || 0;
+    var delta = elapsed - lastSent;
+    if (delta > 0) {
+      navigator.sendBeacon('/activity/' + itemId + '/opened?dwell_seconds=' + delta);
+      dwellLastSent[itemId] = elapsed;
+    }
+  }
 
   function startDwell(itemId) {
     if (dwellTimers[itemId]) return;
-    dwellSeconds[itemId] = dwellSeconds[itemId] || 0;
-    var start = Date.now();
+    dwellStartedAt[itemId] = Date.now();
+    dwellLastSent[itemId] = 0;
     dwellTimers[itemId] = setInterval(function() {
-      var elapsed = (Date.now() - start) / 1000;
-      dwellSeconds[itemId] = elapsed;
-      if (Math.floor(elapsed) % 30 === 0 && elapsed > 0) {
-        navigator.sendBeacon('/activity/' + itemId + '/opened?dwell_seconds=' + Math.floor(elapsed));
+      var elapsed = Math.floor((Date.now() - dwellStartedAt[itemId]) / 1000);
+      if (elapsed - (dwellLastSent[itemId] || 0) >= 30) {
+        flushDwell(itemId);
       }
     }, 1000);
   }
 
   function stopDwell(itemId) {
+    flushDwell(itemId);
     if (dwellTimers[itemId]) {
       clearInterval(dwellTimers[itemId]);
       delete dwellTimers[itemId];
     }
+    delete dwellStartedAt[itemId];
+    delete dwellLastSent[itemId];
   }
 
   document.body.addEventListener('htmx:afterSwap', function(evt) {
@@ -116,16 +157,17 @@
   });
 
   window.addEventListener('beforeunload', function() {
-    Object.keys(dwellSeconds).forEach(function(itemId) {
-      if (dwellSeconds[itemId] > 0) {
-        navigator.sendBeacon('/activity/' + itemId + '/opened?dwell_seconds=' + Math.floor(dwellSeconds[itemId]));
-      }
-    });
+    Object.keys(dwellTimers).forEach(stopDwell);
   });
 
   document.addEventListener('visibilitychange', function() {
     if (document.hidden) {
       Object.keys(dwellTimers).forEach(stopDwell);
+    } else {
+      document.querySelectorAll('.drawer-loaded').forEach(function(drawer) {
+        var item = drawer.closest('.item');
+        if (item) startDwell(item.id.replace('item-', ''));
+      });
     }
   });
 
@@ -145,6 +187,37 @@
         }
       })
       .catch(function() { btn.disabled = false; });
+  }
+
+  // Save toggle
+  function saveArticle(itemId, btn) {
+    btn.disabled = true;
+    fetch('/save/' + itemId, {method: 'POST'})
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        btn.disabled = false;
+        if (data.saved) {
+          btn.innerHTML = '&#9733; Saved';
+          btn.classList.add('saved');
+        } else {
+          btn.innerHTML = '&#9734; Save';
+          btn.classList.remove('saved');
+        }
+      })
+      .catch(function() { btn.disabled = false; });
+  }
+
+  async function triggerFetch(btn) {
+    btn.disabled = true;
+    var old = btn.textContent;
+    btn.textContent = 'Fetching...';
+    try {
+      await fetch('/fetch/trigger', {method: 'POST'});
+      setTimeout(function() { location.reload(); }, 1200);
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = old;
+    }
   }
 </script>
 {% endblock %}

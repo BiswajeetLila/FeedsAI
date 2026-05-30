@@ -62,9 +62,10 @@ async def test_rank_batch_happy_path():
         from app.rank import _rank_batch
         scores = await _rank_batch(items, "I like AI and tech", max_batch=50)
 
-    assert scores[1] == pytest.approx(8.5)
-    assert scores[2] == pytest.approx(2.0)
-    assert scores[3] == pytest.approx(7.0)
+    assert scores[1].score == pytest.approx(8.5)
+    assert scores[1].status == "ranked"
+    assert scores[2].score == pytest.approx(2.0)
+    assert scores[3].score == pytest.approx(7.0)
 
 
 # ---------------------------------------------------------------------------
@@ -85,9 +86,11 @@ async def test_rank_batch_missing_score_key():
         from app.rank import _rank_batch
         scores = await _rank_batch(items, "profile", max_batch=50)
 
-    assert scores[10] == pytest.approx(6.0)
-    assert scores[11] == pytest.approx(0.0)   # missing key → 0.0
-    assert scores[12] == pytest.approx(4.5)
+    assert scores[10].score == pytest.approx(6.0)
+    assert scores[11].score == pytest.approx(0.0)
+    assert scores[11].status == "failed"
+    assert scores[11].error == "missing_score"
+    assert scores[12].score == pytest.approx(4.5)
 
 
 # ---------------------------------------------------------------------------
@@ -125,10 +128,10 @@ async def test_rank_batch_json_failure_halves():
         from app.rank import _rank_batch
         scores = await _rank_batch(items, "profile", max_batch=4)
 
-    assert scores[20] == pytest.approx(5.0)
-    assert scores[21] == pytest.approx(6.0)
-    assert scores[22] == pytest.approx(3.0)
-    assert scores[23] == pytest.approx(9.0)
+    assert scores[20].score == pytest.approx(5.0)
+    assert scores[21].score == pytest.approx(6.0)
+    assert scores[22].score == pytest.approx(3.0)
+    assert scores[23].score == pytest.approx(9.0)
     assert call_count == 3  # 1 failed + 2 halved batches
 
 
@@ -145,8 +148,11 @@ async def test_rank_batch_persistent_failure():
         from app.rank import _rank_batch
         scores = await _rank_batch(items, "profile", max_batch=2)
 
-    assert scores[30] == pytest.approx(0.0)
-    assert scores[31] == pytest.approx(0.0)
+    assert scores[30].score == pytest.approx(0.0)
+    assert scores[30].status == "failed"
+    assert scores[30].error == "bad_json"
+    assert scores[31].score == pytest.approx(0.0)
+    assert scores[31].status == "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -162,8 +168,10 @@ async def test_rank_batch_llm_error():
         from app.rank import _rank_batch
         scores = await _rank_batch(items, "profile", max_batch=50)
 
-    assert scores[40] == pytest.approx(0.0)
-    assert scores[41] == pytest.approx(0.0)
+    assert scores[40].score == pytest.approx(0.0)
+    assert scores[40].status == "failed"
+    assert scores[40].error == "timeout"
+    assert scores[41].score == pytest.approx(0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -183,8 +191,9 @@ async def test_rank_batch_score_clamping():
         from app.rank import _rank_batch
         scores = await _rank_batch(items, "profile", max_batch=50)
 
-    assert scores[50] == pytest.approx(10.0)   # clamped from 15
-    assert scores[51] == pytest.approx(0.0)    # clamped from -3
+    assert scores[50].score == pytest.approx(10.0)   # clamped from 15
+    assert scores[51].score == pytest.approx(0.0)    # clamped from -3
+    assert scores[51].status == "ranked"
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +211,10 @@ async def test_rank_batch_prompt_version_in_rationale():
         """CREATE TABLE items (
             id INTEGER PRIMARY KEY,
             score REAL DEFAULT 0.0,
-            rank_rationale TEXT
+            rank_rationale TEXT,
+            ranking_status TEXT NOT NULL DEFAULT 'unranked',
+            ranking_error TEXT,
+            ranked_at INTEGER
         )"""
     )
     conn.execute("INSERT INTO items(id, score) VALUES (60, 0.0)")
@@ -217,6 +229,12 @@ async def test_rank_batch_prompt_version_in_rationale():
     rationale = row[0]
     assert PROMPT_VERSION in rationale
     assert "Interesting article" in rationale
+    row = conn.execute(
+        "SELECT ranking_status, ranking_error, ranked_at FROM items WHERE id=60"
+    ).fetchone()
+    assert row[0] == "ranked"
+    assert row[1] is None
+    assert row[2] is not None
     conn.close()
 
 
@@ -238,7 +256,10 @@ async def test_rank_items_skips_already_ranked():
         """CREATE TABLE items (
             id INTEGER PRIMARY KEY,
             score REAL DEFAULT 0.0,
-            rank_rationale TEXT
+            rank_rationale TEXT,
+            ranking_status TEXT NOT NULL DEFAULT 'unranked',
+            ranking_error TEXT,
+            ranked_at INTEGER
         )"""
     )
     conn.execute("INSERT INTO items(id, score) VALUES (70, 5.0)")
@@ -263,4 +284,37 @@ async def test_rank_items_skips_already_ranked():
     # Verify item 70 score was not changed in DB
     row = conn.execute("SELECT score FROM items WHERE id=70").fetchone()
     assert row[0] == pytest.approx(5.0)
+    conn.close()
+
+
+@pytest.mark.asyncio
+async def test_rank_items_marks_llm_failure_non_retryable():
+    item = make_item(80)
+    error_result = LLMResult(text="", model_used="claude", error="timeout")
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """CREATE TABLE items (
+            id INTEGER PRIMARY KEY,
+            score REAL DEFAULT 0.0,
+            rank_rationale TEXT,
+            ranking_status TEXT NOT NULL DEFAULT 'unranked',
+            ranking_error TEXT,
+            ranked_at INTEGER
+        )"""
+    )
+    conn.execute("INSERT INTO items(id, score) VALUES (80, 0.0)")
+    conn.commit()
+
+    with patch("app.rank.call_llm", new=AsyncMock(return_value=error_result)):
+        from app.rank import rank_items
+        scores = await rank_items([item], "profile", conn)
+
+    assert scores[80] == pytest.approx(0.0)
+    row = conn.execute(
+        "SELECT ranking_status, ranking_error, ranked_at FROM items WHERE id=80"
+    ).fetchone()
+    assert row[0] == "failed"
+    assert row[1] == "timeout"
+    assert row[2] is not None
     conn.close()

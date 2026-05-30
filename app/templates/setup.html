@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Setup - FeedsAI{% endblock %}
+{% block content %}
+<section class="setup-shell">
+  <div class="setup-header">
+    <h2>Set up your digest</h2>
+    <p class="meta">Creates <code>profile.md</code> and <code>sources.yaml</code>.</p>
+  </div>
+
+  <form class="setup-form" method="post" action="/setup">
+    <div class="form-grid">
+      <label>
+        Name
+        <input name="reader_name" placeholder="Biswa" autocomplete="name">
+      </label>
+      <label>
+        Region
+        <input name="region" placeholder="India, Bengaluru, EU, etc.">
+      </label>
+    </div>
+
+    <label>
+      Reader archetype
+      <input name="archetype" placeholder="AI builder tracking tools, robotics, space, and useful research.">
+    </label>
+
+    <label>
+      Highest interests
+      <textarea name="top_interests" rows="6" placeholder="LLM agents that ship real workflows&#10;Robotics demos with hardware details&#10;Space missions, launch systems, propulsion&#10;Open-source developer tools"></textarea>
+    </label>
+
+    <label>
+      Secondary interests
+      <textarea name="secondary_interests" rows="4" placeholder="Design systems&#10;Indie software businesses&#10;Science explainers"></textarea>
+    </label>
+
+    <label>
+      Avoid
+      <textarea name="avoid_topics" rows="4" placeholder="Celebrity drama&#10;Generic AI hype&#10;Press-release rewrites&#10;Low-signal funding news"></textarea>
+    </label>
+
+    <div class="source-panel">
+      <h3>Starter sources</h3>
+      <label class="check-row"><input type="checkbox" name="include_hn" checked> Hacker News front page</label>
+      <label class="check-row"><input type="checkbox" name="include_simon" checked> Simon Willison</label>
+      <label class="check-row"><input type="checkbox" name="include_quanta"> Quanta Magazine</label>
+    </div>
+
+    <label>
+      arXiv queries
+      <textarea name="arxiv_queries" rows="3" placeholder="cat:cs.AI&#10;cat:cs.RO"></textarea>
+    </label>
+
+    <label>
+      RSS feed URLs
+      <textarea name="rss_urls" rows="4" placeholder="https://example.com/feed.xml"></textarea>
+    </label>
+
+    <label>
+      GitHub release repos
+      <textarea name="github_repos" rows="3" placeholder="anthropics/claude-code&#10;ollama/ollama"></textarea>
+    </label>
+
+    <label class="check-row">
+      <input type="checkbox" name="run_fetch">
+      Fetch after saving
+    </label>
+
+    <div class="setup-actions">
+      <button class="primary-btn" type="submit">Save setup</button>
+      {% if not setup_required %}<a class="secondary-link" href="/">Back to digest</a>{% endif %}
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -24,6 +24,11 @@ def make_proc(returncode: int, stdout: bytes = b"", stderr: bytes = b""):
     return proc
 
 
+def _flatten_exec_args(mock_exec) -> list:
+    args, kwargs = mock_exec.call_args
+    return list(args) + list(kwargs.get("args", []))
+
+
 @pytest.fixture(autouse=True)
 def reset_cli_cache():
     """Reset the session-level CLI availability cache before every test."""
@@ -162,9 +167,26 @@ async def test_prompt_passed_via_stdin():
     proc.communicate.assert_called_once_with(input=prompt_text.encode())
 
     # The prompt must NOT appear in the CLI arguments
-    args, kwargs = mock_exec.call_args
-    all_args = list(args) + list(kwargs.get("args", []))
+    all_args = _flatten_exec_args(mock_exec)
     assert prompt_text not in all_args
+
+
+# ---------------------------------------------------------------------------
+# Test 6b — Gemini prompt passed via stdin, NOT as CLI arg
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_gemini_prompt_passed_via_stdin():
+    prompt_text = "my private gemini prompt"
+    proc = make_proc(returncode=0, stdout=b"response\n")
+
+    with patch("asyncio.create_subprocess_exec", return_value=proc) as mock_exec:
+        await call_llm(prompt_text, prefer="gemini")
+
+    proc.communicate.assert_called_once_with(input=prompt_text.encode())
+    all_args = _flatten_exec_args(mock_exec)
+    assert prompt_text not in all_args
+    assert "--prompt" not in all_args
 
 
 # ---------------------------------------------------------------------------

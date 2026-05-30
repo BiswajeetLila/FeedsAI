@@ -54,9 +54,14 @@ CREATE TABLE IF NOT EXISTS items(
   cluster_id INTEGER REFERENCES clusters(id),
   score REAL NOT NULL DEFAULT 0.0,
   rank_rationale TEXT,
+  ranking_status TEXT NOT NULL DEFAULT 'unranked',
+  ranking_error TEXT,
+  ranked_at INTEGER,
   ai_summary TEXT,
   ai_key_points TEXT,
   is_read INTEGER NOT NULL DEFAULT 0,
+  is_liked INTEGER NOT NULL DEFAULT 0,
+  is_saved INTEGER NOT NULL DEFAULT 0,
   total_dwell_seconds REAL NOT NULL DEFAULT 0.0
 );
 
@@ -99,6 +104,10 @@ class Item:
     source_title: str | None = None  # populated by get_digest_items JOIN
     topic: str | None = None
     is_liked: bool = False
+    is_saved: bool = False
+    ranking_status: str = "unranked"
+    ranking_error: str | None = None
+    ranked_at: int | None = None
 
 
 @dataclass
@@ -163,12 +172,30 @@ def _migrate(conn: sqlite3.Connection) -> None:
     migrations = [
         "ALTER TABLE items ADD COLUMN topic TEXT",
         "ALTER TABLE items ADD COLUMN is_liked INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE items ADD COLUMN is_saved INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE items ADD COLUMN ranking_status TEXT NOT NULL DEFAULT 'unranked'",
+        "ALTER TABLE items ADD COLUMN ranking_error TEXT",
+        "ALTER TABLE items ADD COLUMN ranked_at INTEGER",
     ]
     for sql in migrations:
         try:
             conn.execute(sql)
         except sqlite3.OperationalError:
             pass  # column already exists
+
+    try:
+        conn.execute(
+            """
+            UPDATE items
+            SET ranking_status='ranked',
+                ranking_error=NULL,
+                ranked_at=COALESCE(ranked_at, fetched_at)
+            WHERE ranking_status='unranked'
+              AND (rank_rationale IS NOT NULL OR score > 0.0)
+            """
+        )
+    except sqlite3.OperationalError:
+        pass
 
 
 def init_schema(db_path: Path = _DEFAULT_DB) -> None:
@@ -200,12 +227,16 @@ def _row_to_item(row: sqlite3.Row) -> Item:
         cluster_id=row["cluster_id"],
         score=row["score"],
         rank_rationale=row["rank_rationale"],
+        ranking_status=row["ranking_status"] if "ranking_status" in keys else "unranked",
+        ranking_error=row["ranking_error"] if "ranking_error" in keys else None,
+        ranked_at=row["ranked_at"] if "ranked_at" in keys else None,
         ai_summary=row["ai_summary"],
         ai_key_points=row["ai_key_points"],
         is_read=bool(row["is_read"]),
         total_dwell_seconds=row["total_dwell_seconds"],
         topic=row["topic"] if "topic" in keys else None,
         is_liked=bool(row["is_liked"]) if "is_liked" in keys else False,
+        is_saved=bool(row["is_saved"]) if "is_saved" in keys else False,
     )
 
 
@@ -250,7 +281,8 @@ def get_all_sources(conn: sqlite3.Connection) -> list[Source]:
 _VALID_ITEM_COLUMNS = frozenset({
     "source_id", "url", "canonical_url", "title", "author", "published_at",
     "fetched_at", "excerpt", "full_text", "cluster_id", "score", "rank_rationale",
-    "ai_summary", "ai_key_points", "is_read", "total_dwell_seconds"
+    "ranking_status", "ranking_error", "ranked_at", "ai_summary", "ai_key_points",
+    "is_read", "is_saved", "total_dwell_seconds",
 })
 
 
@@ -277,10 +309,14 @@ def insert_item_if_new(conn: sqlite3.Connection, **kwargs) -> int | None:
 
 
 def get_unranked_items(conn: sqlite3.Connection, since_hours: int = 24) -> list[Item]:
-    """Items with score=0.0 fetched in last N hours."""
+    """Items not yet ranked, fetched in last N hours."""
     cutoff = int(time.time()) - since_hours * 3600
     rows = conn.execute(
-        "SELECT * FROM items WHERE score=0.0 AND fetched_at >= ? ORDER BY fetched_at DESC",
+        """
+        SELECT * FROM items
+        WHERE ranking_status='unranked' AND score <= 0.0 AND fetched_at >= ?
+        ORDER BY fetched_at DESC
+        """,
         (cutoff,),
     ).fetchall()
     return [_row_to_item(r) for r in rows]
@@ -296,18 +332,55 @@ def update_item_score(
 ) -> None:
     """Update score + rank_rationale (include prompt_version in rationale string)."""
     full_rationale = f"[{prompt_version}] {rationale}"
+    ranked_at = int(time.time())
 
     def _run():
         if topic is not None:
             conn.execute(
-                "UPDATE items SET score=?, rank_rationale=?, topic=? WHERE id=?",
-                (score, full_rationale, topic, item_id),
+                """
+                UPDATE items
+                SET score=?, rank_rationale=?, topic=?,
+                    ranking_status='ranked', ranking_error=NULL, ranked_at=?
+                WHERE id=?
+                """,
+                (score, full_rationale, topic, ranked_at, item_id),
             )
         else:
             conn.execute(
-                "UPDATE items SET score=?, rank_rationale=? WHERE id=?",
-                (score, full_rationale, item_id),
+                """
+                UPDATE items
+                SET score=?, rank_rationale=?,
+                    ranking_status='ranked', ranking_error=NULL, ranked_at=?
+                WHERE id=?
+                """,
+                (score, full_rationale, ranked_at, item_id),
             )
+
+    _with_retry(_run)
+
+
+def update_item_rank_failure(
+    conn: sqlite3.Connection,
+    item_id: int,
+    error: str,
+    prompt_version: str,
+) -> None:
+    """Mark item ranking as failed so the fetch loop does not retry forever."""
+    ranked_at = int(time.time())
+    rationale = f"[{prompt_version}] ranking failed: {error}"
+
+    def _run():
+        conn.execute(
+            """
+            UPDATE items
+            SET ranking_status='failed',
+                ranking_error=?,
+                rank_rationale=?,
+                ranked_at=?
+            WHERE id=?
+            """,
+            (error, rationale, ranked_at, item_id),
+        )
 
     _with_retry(_run)
 
@@ -336,11 +409,13 @@ def get_digest_items(
     limit: int = 10,
     offset: int = 0,
     topic: str | None = None,
+    saved_only: bool = False,
 ) -> list[Item]:
     """Top N items by score from last N hours, one per cluster (highest score wins)."""
     cutoff = int(time.time()) - hours * 3600
 
     topic_clause = "AND r.topic = ?" if topic else ""
+    saved_clause = "AND r.is_saved = 1" if saved_only else ""
     params: list = [cutoff]
     if topic:
         params.append(topic)
@@ -360,7 +435,7 @@ def get_digest_items(
         SELECT r.*, s.title AS source_title
         FROM ranked r
         LEFT JOIN sources s ON r.source_id = s.id
-        WHERE r.rn = 1 {topic_clause}
+        WHERE r.rn = 1 {topic_clause} {saved_clause}
         ORDER BY r.score DESC, r.published_at DESC
         LIMIT ? OFFSET ?
         """,
@@ -397,21 +472,12 @@ def mark_item_liked(conn: sqlite3.Connection, item_id: int, liked: bool = True) 
     _with_retry(_run)
 
 
-def get_top_items_without_summary(
-    conn: sqlite3.Connection, hours: int = 24, limit: int = 20
-) -> list["Item"]:
-    """Top-scored items from last N hours that have no ai_summary yet."""
-    cutoff = int(time.time()) - hours * 3600
-    rows = conn.execute(
-        """
-        SELECT * FROM items
-        WHERE fetched_at >= ? AND score > 0.0 AND (ai_summary IS NULL OR ai_summary = '')
-        ORDER BY score DESC
-        LIMIT ?
-        """,
-        (cutoff, limit),
-    ).fetchall()
-    return [_row_to_item(r) for r in rows]
+def mark_item_saved(conn: sqlite3.Connection, item_id: int, saved: bool = True) -> None:
+    """Toggle saved-for-later flag."""
+    def _run():
+        conn.execute("UPDATE items SET is_saved=? WHERE id=?", (int(saved), item_id))
+
+    _with_retry(_run)
 
 
 # ---------------------------------------------------------------------------

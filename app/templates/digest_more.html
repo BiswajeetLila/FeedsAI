@@ -1,5 +1,5 @@
 {% for item in items %}
-<div class="item {% if item.is_read %}read{% endif %}"
+<div class="item {% if item.is_read %}read{% endif %} {% if item.is_low_signal %}low-signal{% endif %}"
      id="item-{{ item.id }}"
      hx-get="/item/{{ item.id }}/summary"
      hx-target="#drawer-{{ item.id }}"
@@ -8,6 +8,7 @@
   <div class="item-header">
     <span class="score-badge score-{{ item.tier }}">{{ item.tier_label }}</span>
     <span class="item-title">{{ item.title }}</span>
+    {% if item.is_saved %}<span class="saved-indicator">&#9733;</span>{% endif %}
     {% if item.cluster_size and item.cluster_size > 1 %}
       <a class="cluster-link" href="/item/{{ item.id }}">{{ item.cluster_size }} related &#8599;</a>
     {% endif %}
@@ -23,16 +24,23 @@
     {% if item.topic %}<span class="topic-tag">{{ item.topic }}</span>{% endif %}
     {{ item.source_title }} &middot; {{ item.age }}
   </div>
+  {% if item.reason_chips or item.novelty_label or item.is_low_signal %}
+  <div class="reason-row">
+    {% if item.novelty_label %}<span class="reason-chip novelty">{{ item.novelty_label }}</span>{% endif %}
+    {% for chip in item.reason_chips %}<span class="reason-chip">{{ chip }}</span>{% endfor %}
+    {% if item.is_low_signal %}<span class="reason-chip caution">Low signal</span>{% endif %}
+  </div>
+  {% endif %}
   {% if item.excerpt %}<p class="item-excerpt">{{ item.excerpt }}</p>{% endif %}
   <div id="drawer-{{ item.id }}" class="drawer">
-    <span class="loading-skeleton">Generating summary&hellip;</span>
+    <span class="loading-skeleton">Opening item&hellip;</span>
   </div>
 </div>
 {% endfor %}
 {% if has_more %}
 <div id="show-more-container">
   <button class="show-more-btn"
-          hx-get="/digest/more?offset={{ next_offset }}&limit={{ limit }}&topic={{ active_topic }}"
+          hx-get="/digest/more?offset={{ next_offset }}&limit={{ limit }}&topic={{ active_topic }}&mode={{ digest_mode }}{% if saved_only %}&saved=1{% endif %}{% if show_low_signal %}&show_low_signal=1{% endif %}"
           hx-target="#show-more-container"
           hx-swap="outerHTML">
     Show more

@@ -19,6 +19,7 @@ from app.db import (
     get_digest_items,
     get_item_by_id,
     mark_item_read,
+    mark_item_saved,
     record_activity,
     get_config,
     set_config,
@@ -287,6 +288,39 @@ def test_get_digest_items_one_per_cluster(conn):
     assert 3.0 not in scores
 
 
+def test_get_digest_items_saved_only(conn):
+    now = int(time.time())
+
+    saved_id = insert_item_if_new(
+        conn,
+        url="https://example.com/saved",
+        canonical_url="https://example.com/saved",
+        title="Saved",
+        fetched_at=now,
+        score=9.0,
+        is_saved=1,
+        is_read=0,
+        total_dwell_seconds=0.0,
+    )
+    insert_item_if_new(
+        conn,
+        url="https://example.com/unsaved",
+        canonical_url="https://example.com/unsaved",
+        title="Unsaved",
+        fetched_at=now,
+        score=8.0,
+        is_saved=0,
+        is_read=0,
+        total_dwell_seconds=0.0,
+    )
+    conn.commit()
+
+    items = get_digest_items(conn, hours=24, limit=10, saved_only=True)
+
+    assert [item.id for item in items] == [saved_id]
+    assert items[0].is_saved is True
+
+
 # ---------------------------------------------------------------------------
 # Test 6: update_item_score and update_item_summary
 # ---------------------------------------------------------------------------
@@ -327,6 +361,24 @@ def test_mark_item_read(conn):
 
     item = get_item_by_id(conn, item_id)
     assert item.is_read == True
+
+
+def test_mark_item_saved(conn):
+    item_id = _make_item(conn)
+    item = get_item_by_id(conn, item_id)
+    assert item.is_saved == False
+
+    mark_item_saved(conn, item_id, saved=True)
+    conn.commit()
+
+    item = get_item_by_id(conn, item_id)
+    assert item.is_saved == True
+
+    mark_item_saved(conn, item_id, saved=False)
+    conn.commit()
+
+    item = get_item_by_id(conn, item_id)
+    assert item.is_saved == False
 
 
 # ---------------------------------------------------------------------------

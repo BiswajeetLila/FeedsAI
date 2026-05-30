@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app import observability
 from app.db import get_all_sources, get_db
+from app.onboarding import setup_required
 from app.startup import _LAST_FETCH_FILE, is_data_stale
 from app.templates_config import templates
 
@@ -67,7 +68,6 @@ def _collect() -> dict:
     source_count = 0
     item_count = 0
     ranked_today = 0
-    summarized = 0
     liked_count = 0
     with get_db() as conn:
         try:
@@ -92,14 +92,6 @@ def _collect() -> dict:
             logger.warning("Could not get ranked_today count: %s", exc)
 
         try:
-            row = conn.execute(
-                "SELECT COUNT(*) AS cnt FROM items WHERE ai_summary IS NOT NULL AND ai_summary != ''"
-            ).fetchone()
-            summarized = row["cnt"] if row else 0
-        except Exception as exc:
-            logger.warning("Could not get summarized count: %s", exc)
-
-        try:
             row = conn.execute("SELECT COUNT(*) AS cnt FROM items WHERE is_liked=1").fetchone()
             liked_count = row["cnt"] if row else 0
         except Exception as exc:
@@ -121,12 +113,13 @@ def _collect() -> dict:
     )
 
     return {
+        "ok": True,
+        "setup_required": setup_required(),
         "last_fetch": last_fetch,
         "is_stale": stale,
         "source_count": source_count,
         "item_count": item_count,
         "ranked_today": ranked_today,
-        "summarized": summarized,
         "liked_count": liked_count,
         "uptime": observability.format_uptime(),
         "boot_time": boot_dt,
@@ -155,6 +148,17 @@ async def status_page(request: Request):
 async def status_json():
     """Machine-readable status — useful for healthcheck scripts."""
     return JSONResponse(_collect())
+
+
+@router.get("/healthz")
+async def healthz():
+    """Tiny server-running check for launchers and monitors."""
+    return JSONResponse({
+        "ok": True,
+        "uptime_seconds": round(observability.uptime_seconds(), 1),
+        "setup_required": setup_required(),
+        "fetch_in_progress": observability.fetch_state.in_progress,
+    })
 
 
 _manual_fetch_task: asyncio.Task | None = None

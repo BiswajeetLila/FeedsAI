@@ -2,7 +2,6 @@
 app/pipeline.py
 Orchestrator for the full feed fetch cycle.
 """
-import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -16,7 +15,6 @@ from app.db import (
     get_connection,
     get_or_create_cluster,
     get_recent_items_for_dedup,
-    get_top_items_without_summary,
     get_unranked_items,
     increment_cluster_member,
     init_schema,
@@ -24,6 +22,7 @@ from app.db import (
     upsert_source,
 )
 from app.dedup import dedup_item
+from app.fetch_engine import FetchEngine
 from app.ingest import fetch_source
 from app.rank import rank_items
 
@@ -161,21 +160,25 @@ async def run_fetch_cycle(
         # --- Open DB connection for the whole cycle ---
         conn = get_connection(db_path)
         try:
-            # --- Per-source fetch + insert ---
+            selected_sources = []
             for source in sources:
-                # Apply source filter if specified
                 if source_filter and (source.title or "").lower() != source_filter.lower():
                     continue
+                selected_sources.append(source)
 
-                report.sources_attempted += 1
-                try:
-                    raw_items = fetch_source(source)
-                except Exception as exc:
-                    msg = f"fetch_source({source}): {exc}"
+            report.sources_attempted = len(selected_sources)
+            fetch_results = await FetchEngine(fetch_one=fetch_source).fetch_many(selected_sources)
+
+            # --- Per-source insert ---
+            for fetch_result in fetch_results:
+                source = fetch_result.source
+                if fetch_result.error is not None:
+                    msg = f"fetch_source({source}): {fetch_result.error}"
                     logger.warning("run_fetch_cycle: %s", msg)
                     report.errors.append(msg)
                     continue
 
+                raw_items = fetch_result.items
                 report.items_fetched += len(raw_items)
 
                 if dry_run:
@@ -274,9 +277,6 @@ async def run_fetch_cycle(
                         logger.warning("run_fetch_cycle: rank_items failed: %s", exc)
                         report.errors.append(f"rank_items: {exc}")
 
-                # --- Pre-generate summaries for top 20 scored items ---
-                await _pre_summarize_top(conn)
-
         finally:
             conn.close()
 
@@ -317,29 +317,3 @@ async def run_fetch_cycle(
         pass
 
     return report
-
-
-async def _pre_summarize_top(conn, top_n: int = 20) -> None:
-    """Pre-generate AI summaries for top-scored items so drawer clicks are instant."""
-    from app.summarize import summarize_item
-
-    items = get_top_items_without_summary(conn, hours=24, limit=top_n)
-    if not items:
-        return
-
-    logger.info("Pre-generating summaries for %d top items...", len(items))
-    sem = asyncio.Semaphore(2)  # 2 concurrent Claude calls
-
-    async def _one(item):
-        async with sem:
-            try:
-                await summarize_item(item, conn)
-            except Exception as exc:
-                logger.warning("pre-summarize failed item %d: %s", item.id, exc)
-
-    await asyncio.gather(*[_one(item) for item in items])
-    try:
-        conn.commit()
-    except Exception:
-        pass
-    logger.info("Pre-summarize done.")

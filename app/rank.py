@@ -1,21 +1,38 @@
 """
 Batch LLM scoring for FeedsAI.
 
-Ranks items in batches using call_llm(), parses JSON scores,
-and stores results via update_item_score().
+Ranks items in batches using call_llm(), parses JSON scores, and stores
+ranking results in SQLite.
 """
 import json
 import logging
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 
-from app.llm import call_llm, LLMResult
-from app.db import Item, update_item_score
+from app.db import Item, update_item_rank_failure, update_item_score
+from app.llm import LLMResult, call_llm
 
 logger = logging.getLogger(__name__)
 
 PROMPT_VERSION = "rank_v1"
 _PROMPT_TEMPLATE = (Path(__file__).parent.parent / "prompts" / "rank_v1.txt").read_text()
+
+
+@dataclass(frozen=True)
+class RankingResult:
+    item_id: int
+    score: float
+    rationale: str = ""
+    topic: str | None = None
+    status: str = "ranked"
+    error: str | None = None
+
+
+VALID_TOPICS = frozenset({
+    "space", "robotics", "ai", "science", "design",
+    "scifi", "rationalism", "engineering", "india", "other",
+})
 
 
 async def rank_items(
@@ -25,57 +42,68 @@ async def rank_items(
     max_batch: int = 50,
 ) -> dict[int, float]:
     """
-    Rank items in batches. Returns dict of {item_id: score}.
-    Stores scores in DB via update_item_score.
-    Items with score > 0.0 already are considered "ranked" and are skipped.
+    Rank unranked items in batches. Returns {item_id: score}.
+    Ranked and failed states are persisted so failed/low-score items do not
+    get sent to the LLM again on every fetch.
     """
-    # Filter out already-ranked items
-    unranked = [item for item in items if item.score <= 0.0]
+    unranked = [
+        item for item in items
+        if item.ranking_status == "unranked" and item.score <= 0.0
+    ]
 
     if not unranked:
         logger.debug("rank_items: all items already ranked, nothing to do")
         return {}
 
-    all_scores: dict[int, float] = {}
+    all_results: dict[int, RankingResult] = {}
 
-    # Process in batches
     for batch_start in range(0, len(unranked), max_batch):
         batch = unranked[batch_start : batch_start + max_batch]
-        batch_scores = await _rank_batch(batch, profile_md, max_batch=len(batch))
-        all_scores.update(batch_scores)
+        batch_results = await _rank_batch(batch, profile_md, max_batch=len(batch))
+        all_results.update(batch_results)
 
-    # Persist to DB — we need rationale from a second pass through the LLM result,
-    # so we call update_item_score using data collected in _rank_batch.
-    # _rank_batch returns scores; rationale is stored internally.
-    # We use a separate internal structure to pass rationale through.
-    # Re-run via _rank_batch_with_rationale pattern: store in _rationale_cache.
-    for item_id, score in all_scores.items():
-        rationale = _rationale_cache.pop(item_id, "")
-        topic = _topic_cache.pop(item_id, None)
-        update_item_score(conn, item_id, score, rationale, PROMPT_VERSION, topic=topic)
+    for item_id, result in all_results.items():
+        if result.status == "ranked":
+            update_item_score(
+                conn,
+                item_id,
+                result.score,
+                result.rationale,
+                PROMPT_VERSION,
+                topic=result.topic,
+            )
+        else:
+            update_item_rank_failure(
+                conn,
+                item_id,
+                result.error or "unknown",
+                PROMPT_VERSION,
+            )
 
-    return all_scores
+    return {item_id: result.score for item_id, result in all_results.items()}
 
 
-# Internal caches to pass rationale and topic from _rank_batch to rank_items
-_rationale_cache: dict[int, str] = {}
-_topic_cache: dict[int, str | None] = {}
-
-VALID_TOPICS = frozenset({
-    "space", "robotics", "ai", "science", "design",
-    "scifi", "rationalism", "engineering", "india", "other",
-})
+def _failed_results(batch: list[Item], error: str) -> dict[int, RankingResult]:
+    return {
+        item.id: RankingResult(
+            item_id=item.id,
+            score=0.0,
+            status="failed",
+            error=error,
+        )
+        for item in batch
+    }
 
 
 async def _rank_batch(
     batch: list[Item],
     profile_md: str,
     max_batch: int = 50,
-) -> dict[int, float]:
+) -> dict[int, RankingResult]:
     """
-    Rank a single batch. Returns {item_id: score}.
+    Rank a single batch. Returns {item_id: RankingResult}.
     On JSON parse failure: halve batch, retry recursively down to batch_size=1.
-    On LLM error (result.error not None): log warning, return {id: 0.0} for all.
+    On LLM error: return failed results so caller can persist non-retry state.
     """
     if not batch:
         return {}
@@ -98,39 +126,33 @@ async def _rank_batch(
 
     result: LLMResult = await call_llm(prompt)
 
-    # Handle LLM-level error
     if result.error is not None:
         logger.warning(
-            "_rank_batch: LLM returned error=%r for batch of %d items; assigning 0.0",
+            "_rank_batch: LLM returned error=%r for batch of %d items; marking failed",
             result.error,
             len(batch),
         )
-        return {item.id: 0.0 for item in batch}
+        return _failed_results(batch, result.error)
 
-    # Strip markdown code fences if present (Claude often wraps JSON in ```json...```)
     raw_text = result.text.strip()
     if raw_text.startswith("```"):
         lines = raw_text.splitlines()
-        # Drop opening fence line (```json or ```)
         lines = lines[1:]
-        # Drop closing fence line if present
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
         raw_text = "\n".join(lines).strip()
 
-    # Parse JSON response
     try:
         data = json.loads(raw_text)
         rankings = data["rankings"]
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
-        # JSON parse failure — halve the batch and retry recursively
         if max_batch <= 1:
             logger.warning(
-                "_rank_batch: JSON parse failed at batch_size=1 for item ids=%s; assigning 0.0. Error: %s",
+                "_rank_batch: JSON parse failed at batch_size=1 for item ids=%s; marking failed. Error: %s",
                 [item.id for item in batch],
                 exc,
             )
-            return {item.id: 0.0 for item in batch}
+            return _failed_results(batch, "bad_json")
 
         new_max = max(1, max_batch // 2)
         logger.warning(
@@ -140,16 +162,14 @@ async def _rank_batch(
             exc,
         )
 
-        scores: dict[int, float] = {}
+        results: dict[int, RankingResult] = {}
         for sub_start in range(0, len(batch), new_max):
             sub_batch = batch[sub_start : sub_start + new_max]
-            sub_scores = await _rank_batch(sub_batch, profile_md, max_batch=new_max)
-            scores.update(sub_scores)
-        return scores
+            sub_results = await _rank_batch(sub_batch, profile_md, max_batch=new_max)
+            results.update(sub_results)
+        return results
 
-    # Extract scores from parsed rankings
-    scores = {}
-    id_to_item = {item.id: item for item in batch}
+    results: dict[int, RankingResult] = {}
 
     for entry in rankings:
         item_id = entry.get("id")
@@ -162,28 +182,55 @@ async def _rank_batch(
 
         if "score" not in entry:
             logger.warning(
-                "_rank_batch: missing 'score' key for item id=%s; assigning 0.0",
+                "_rank_batch: missing 'score' key for item id=%s; marking failed",
                 item_id,
             )
-            scores[item_id] = 0.0
-            _rationale_cache[item_id] = raw_rationale
-            _topic_cache[item_id] = topic
-        else:
-            raw_score = float(entry["score"])
-            clamped = max(0.0, min(10.0, raw_score))
-            scores[item_id] = clamped
-            _rationale_cache[item_id] = raw_rationale
-            _topic_cache[item_id] = topic
+            results[item_id] = RankingResult(
+                item_id=item_id,
+                score=0.0,
+                rationale=raw_rationale,
+                topic=topic,
+                status="failed",
+                error="missing_score",
+            )
+            continue
 
-    # Any items in the batch not returned by the LLM get 0.0
-    for item in batch:
-        if item.id not in scores:
+        try:
+            raw_score = float(entry["score"])
+        except (TypeError, ValueError):
             logger.warning(
-                "_rank_batch: item id=%d not in LLM response; assigning 0.0",
+                "_rank_batch: invalid 'score' value for item id=%s; marking failed",
+                item_id,
+            )
+            results[item_id] = RankingResult(
+                item_id=item_id,
+                score=0.0,
+                rationale=raw_rationale,
+                topic=topic,
+                status="failed",
+                error="invalid_score",
+            )
+            continue
+
+        clamped = max(0.0, min(10.0, raw_score))
+        results[item_id] = RankingResult(
+            item_id=item_id,
+            score=clamped,
+            rationale=raw_rationale,
+            topic=topic,
+        )
+
+    for item in batch:
+        if item.id not in results:
+            logger.warning(
+                "_rank_batch: item id=%d not in LLM response; marking failed",
                 item.id,
             )
-            scores[item.id] = 0.0
-            _rationale_cache[item.id] = ""
-            _topic_cache[item.id] = None
+            results[item.id] = RankingResult(
+                item_id=item.id,
+                score=0.0,
+                status="failed",
+                error="missing_item",
+            )
 
-    return scores
+    return results

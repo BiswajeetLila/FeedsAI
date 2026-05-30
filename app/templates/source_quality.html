@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Sources - FeedsAI{% endblock %}
+{% block content %}
+<h2>Sources</h2>
+<p class="meta">Ranked by average score plus saved, liked, opened, and linked-out signals.</p>
+
+{% if not sources %}
+<div class="empty-state"><p>No sources yet.</p></div>
+{% else %}
+<table class="llm-table source-table">
+  <thead>
+    <tr>
+      <th>Source</th>
+      <th>Kind</th>
+      <th>Items</th>
+      <th>Avg</th>
+      <th>Likes</th>
+      <th>Saves</th>
+      <th>Opens</th>
+      <th>Quality</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for source in sources %}
+    <tr>
+      <td><a href="{{ source.url }}" target="_blank" rel="noopener">{{ source.title }}</a></td>
+      <td><code>{{ source.kind }}</code></td>
+      <td>{{ source.item_count }}</td>
+      <td>{{ source.avg_score }}</td>
+      <td>{{ source.liked_count }}</td>
+      <td>{{ source.saved_count }}</td>
+      <td>{{ source.opened_count }}</td>
+      <td>{{ source.quality_score }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

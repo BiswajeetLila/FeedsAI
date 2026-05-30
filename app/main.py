@@ -36,19 +36,23 @@ async def lifespan(app: FastAPI):
     logger.info("Database schema initialized.")
 
     # 2. Check if data is stale and trigger background fetch if needed
-    from app.startup import startup_check
-    await startup_check()
+    from app.onboarding import setup_required
+    if setup_required():
+        logger.info("First-run setup required; skipping background fetch until /setup is complete")
+    else:
+        from app.startup import startup_check
+        await startup_check()
 
     # 3. Check claude CLI on PATH
     if shutil.which("claude") is None:
-        logger.warning("'claude' CLI not found on PATH — AI ranking/summarization will not work")
+        logger.warning("'claude' CLI not found on PATH - AI ranking/profile updates will not work")
     else:
         logger.info("'claude' CLI found on PATH.")
 
     if shutil.which("gemini") is None:
-        logger.warning("'gemini' CLI not found on PATH — summarization will fall back to claude")
+        logger.info("'gemini' CLI not found on PATH; optional fallback unavailable")
     else:
-        logger.info("'gemini' CLI found on PATH.")
+        logger.info("'gemini' CLI found on PATH as optional fallback.")
 
     logger.info("FeedsAI ready at http://127.0.0.1:8000  (status: /status, logs: /logs)")
 
@@ -87,9 +91,12 @@ async def _request_metrics(request: Request, call_next):
 
 
 # Include routes
-from app.routes import digest, items, logs as logs_route, status  # noqa: E402
+from app.routes import ask, digest, items, logs as logs_route, setup, sources, status  # noqa: E402
 
+app.include_router(setup.router)
 app.include_router(digest.router)
 app.include_router(items.router)
+app.include_router(ask.router)
+app.include_router(sources.router)
 app.include_router(status.router)
 app.include_router(logs_route.router)

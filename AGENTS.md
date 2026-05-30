@@ -3,15 +3,14 @@
 **Version:** 0.1.0
 
 Local-first feed reader: FastAPI + HTMX. Fetches RSS / Hacker News / arXiv / GitHub
-release feeds, ranks each item 0–10 with Claude CLI against `profile.md`, summarizes
-with Gemini CLI, presents a scored digest at `localhost:8000`.
+release feeds, ranks each item 0–10 with Claude CLI against `profile.md`, and
+presents a scored digest at `localhost:8000`.
 
 ## Feature set
 
 - Profile-driven ranking 0–10 via Claude CLI
-- Gemini-first summarization (Claude fallback)
 - Topic tabs (configurable per-profile)
-- Pre-generated summaries for top items (instant drawer)
+- Instant drawer context from feed excerpts + ranking rationale
 - Like button for engagement-driven profile learning
 - Show-more pagination, dwell tracking, weekly profile-update job
 - Observability: `/status`, `/logs`, rotating `data/server.log`, `scripts/run_server.ps1 -Detach`

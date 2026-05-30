@@ -81,10 +81,10 @@ def _build_command(model: ModelName, prompt: str) -> tuple[list[str], bytes | No
         return ([binary, "--print", "--output-format", "text"], prompt.encode())
     elif model == "gemini":
         binary = _resolve_binary("gemini") or "gemini"
-        # gemini takes prompt via --prompt arg; stdin not used in headless mode
+        # Gemini headless mode accepts stdin. Keep prompt out of process args.
         return (
-            [binary, "--skip-trust", "--prompt", prompt, "--output-format", "text"],
-            None,
+            [binary, "--skip-trust", "--output-format", "text"],
+            prompt.encode(),
         )
     raise ValueError(f"Unknown model: {model}")
 
@@ -226,7 +226,7 @@ async def call_llm(
         prompt: full prompt text.
         timeout: per-call timeout seconds.
         prefer: which model to try first ("claude" default; "gemini" for callers
-            who want gemini-primary like summarization).
+            that explicitly want Gemini primary).
 
     Returns LLMResult. .error is None on any clean success — including a
     successful fallback after the primary failed. model_used reflects which
@@ -252,7 +252,7 @@ async def call_llm(
 
         if _cli_available.get(secondary, True):
             # If fallback succeeds, return its result verbatim (error=None) so
-            # callers don't discard a working summary. If it also fails, surface
+            # callers don't discard working output. If it also fails, surface
             # the fallback's error since that's the more recent failure.
             return await _call_model(secondary, prompt, timeout)
 

@@ -5,8 +5,15 @@
 <h2>System Status <span class="live-dot" title="Server is alive">&#x25CF;</span></h2>
 <p class="meta">Booted {{ boot_time }} &middot; up {{ uptime }} &middot; auto-refresh 10s &middot;
   <a href="/logs">view logs &rarr;</a> &middot;
-  <a href="/status.json">JSON</a>
+  <a href="/status.json">JSON</a> &middot;
+  <a href="/healthz">healthz</a>
 </p>
+
+{% if setup_required %}
+<div class="stale-banner">
+  Setup needed before fetching. <a href="/setup">Open setup</a>
+</div>
+{% endif %}
 
 {% if fetch_in_progress %}
 <div class="fetch-banner">
@@ -50,7 +57,6 @@
   <div class="stat-card"><div class="label">Total items</div><div class="value">{{ item_count }}</div></div>
   <div class="stat-card"><div class="label">Sources</div><div class="value">{{ source_count }}</div></div>
   <div class="stat-card"><div class="label">Ranked (24h)</div><div class="value">{{ ranked_today }}</div></div>
-  <div class="stat-card"><div class="label">Summarized</div><div class="value">{{ summarized }}</div></div>
   <div class="stat-card"><div class="label">Liked</div><div class="value">{{ liked_count }}</div></div>
 </div>
 
