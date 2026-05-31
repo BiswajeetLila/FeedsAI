@@ -2,33 +2,49 @@
 
 All notable changes to FeedsAI Starter.
 
-## [0.1.0] — 2026-05-29
-
-First public release of FeedsAI Starter — a depersonalized fork-and-go
-template derived from a personal FeedsAI deployment.
+## [0.2.0] - 2026-05-31
 
 ### Added
-- **First-run wizard** (`scripts/init.py`): checks `claude` CLI, copies
-  `profile.md.example` -> `profile.md`, copies `sources.yaml.example` ->
-  `sources.yaml`, runs `uv sync`, runs `scripts/healthcheck.py`. Re-runnable.
-- **Generic profile template** (`profile.md.example`): two-section structure
-  (Global + regional bonus), three-tier scoring guide. Placeholder text for
-  the reader to fill in.
-- **Minimal default sources** (`sources.yaml.example`): Simon Willison, Quanta,
-  Hacker News, four arXiv categories, three GitHub release feeds. Known-dead
-  feeds (OpenAI/Anthropic blogs) documented as such, not active examples.
-- **MIT LICENSE**.
+- First-run browser setup for interests, avoid-list, starter feeds, and first fetch.
+- In-app source management at `/settings/sources`.
+- Per-source fetch action and persisted source health.
+- Local search with SQLite FTS5 and LIKE fallback.
+- Recommendation explanation panel with deterministic profile-interest matching.
+- Learning dashboard for engagement analytics and profile-update readiness.
+- Status/log pages for server state, fetch progress, LLM availability, and logs.
+- Windows packaging-readiness layer:
+  - dev vs packaged runtime paths,
+  - packaged launcher entrypoint,
+  - PyInstaller onedir build script.
 
-### Fixed (carried from upstream)
-- **`sources` table population**: `app/pipeline.py` now calls `upsert_source`
-  at the start of each source loop and passes `source_id` into
-  `insert_item_if_new`, so the `sources` table is populated and items have
-  non-null `source_id` after fetch.
-- **`is_saved` orphan column removed** from schema and dataclass; the column
-  was a remnant of a removed Save-to-Obsidian feature.
+### Changed
+- `FeedsAI.bat` / `scripts/start_app.ps1` is now the main dev launch path.
+- Mutable files stay repo-local in dev mode and move to `%LOCALAPPDATA%\FeedsAI`
+  in packaged mode.
+- Source config supports `enabled: true/false`.
+- Docs now point normal users to the browser UI instead of manual YAML edits.
+
+### Verified
+- Full suite: `116 passed, 1 warning`.
+
+## [0.1.0] - 2026-05-29
+
+First public release of FeedsAI Starter: a depersonalized fork-and-go template
+derived from a personal FeedsAI deployment.
+
+### Added
+- First-run wizard (`scripts/init.py`): checks `claude` CLI, copies example
+  config files, runs dependency sync, and runs `scripts/healthcheck.py`.
+- Generic profile template (`profile.md.example`).
+- Minimal default sources (`sources.yaml.example`).
+- MIT license.
+
+### Fixed
+- `sources` table population during fetch.
+- Removed stale `is_saved` schema/dataclass mismatch from the original release.
 
 ### Stack
-- Python 3.11+ (uv-managed), FastAPI + HTMX + Jinja2, SQLite WAL.
-- Claude CLI subprocess (no paid API).
+- Python 3.11+, FastAPI, HTMX, Jinja2, SQLite WAL.
+- Claude CLI subprocess ranking.
 - feedparser, httpx, rapidfuzz, bleach, filelock, pydantic v2.
-- pytest test suite, Windows Task Scheduler integration.
+- pytest test suite and Windows Task Scheduler integration.

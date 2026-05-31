@@ -7,7 +7,6 @@ import logging
 import shutil
 import time
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -21,9 +20,9 @@ logger = logging.getLogger(__name__)
 # Install ring-buffer + rotating-file log handlers BEFORE app boots so we
 # capture startup lines too.
 from app import observability  # noqa: E402
+from app.paths import logs_dir  # noqa: E402
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_LOG_PATH = observability.install_handlers(_REPO_ROOT / "data")
+_LOG_PATH = observability.install_handlers(logs_dir())
 logger.info("Server log file: %s", _LOG_PATH)
 
 
@@ -91,12 +90,15 @@ async def _request_metrics(request: Request, call_next):
 
 
 # Include routes
-from app.routes import ask, digest, items, logs as logs_route, setup, sources, status  # noqa: E402
+from app.routes import ask, digest, items, learning, logs as logs_route, search, settings, setup, sources, status  # noqa: E402
 
 app.include_router(setup.router)
+app.include_router(settings.router)
 app.include_router(digest.router)
 app.include_router(items.router)
 app.include_router(ask.router)
+app.include_router(search.router)
+app.include_router(learning.router)
 app.include_router(sources.router)
 app.include_router(status.router)
 app.include_router(logs_route.router)

@@ -35,9 +35,19 @@
 {% if not items %}
   <div class="empty-state">
     {% if never_fetched %}
-      <p>No data yet. Run: <code>python scripts/fetch.py</code></p>
+      <p>No feed data yet.</p>
+      <div class="empty-actions">
+        <button class="fetch-btn" onclick="triggerFetch(this)">Fetch now</button>
+        <a class="quality-toggle" href="/settings/sources">Add sources</a>
+        <a class="quality-toggle" href="/status">Open status</a>
+      </div>
     {% else %}
-      <p>{% if saved_only %}No saved items yet.{% else %}Nothing scored above threshold in the last 24 hours{% if active_topic %} for topic "{{ active_topic }}"{% endif %}.{% endif %}</p>
+      <p>{% if saved_only %}No saved items yet.{% else %}Nothing matched this view{% if active_topic %} for topic "{{ active_topic }}"{% endif %}.{% endif %}</p>
+      <div class="empty-actions">
+        <a class="quality-toggle" href="/settings/sources">Review sources</a>
+        <a class="quality-toggle" href="/learning">Review learning</a>
+        <a class="quality-toggle" href="/status">Check status</a>
+      </div>
     {% endif %}
   </div>
 {% endif %}

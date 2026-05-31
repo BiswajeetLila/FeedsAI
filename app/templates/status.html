@@ -49,6 +49,7 @@
       {% if not status_by_code %}—{% endif %}
     </div>
   </div>
+  <div class="stat-card"><div class="label">User data</div><div class="value" style="font-size:0.82rem">{{ data_dir }}</div></div>
 </div>
 
 <h3 style="margin-top:1.5rem">Content</h3>
@@ -61,6 +62,10 @@
 </div>
 
 <h3 style="margin-top:1.5rem">LLM calls</h3>
+<div class="status-grid">
+  <div class="stat-card"><div class="label">Claude CLI</div><div class="value" style="font-size:0.9rem">{{ llm_availability.claude or "Not found" }}</div></div>
+  <div class="stat-card"><div class="label">Gemini CLI</div><div class="value" style="font-size:0.9rem">{{ llm_availability.gemini or "Not found" }}</div></div>
+</div>
 <table class="llm-table">
   <thead><tr><th>Model</th><th>Calls</th><th>OK</th><th>Avg latency</th><th>Errors</th><th>Last error</th></tr></thead>
   <tbody>

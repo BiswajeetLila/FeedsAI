@@ -32,7 +32,8 @@ def check_sources():
 @check("DB schema initializes")
 def check_db():
     from app.db import init_schema
-    db_path = Path(__file__).parent.parent / "data" / "feeds.db"
+    from app.paths import default_db_path
+    db_path = default_db_path()
     init_schema(db_path)
     return f"DB at {db_path}"
 

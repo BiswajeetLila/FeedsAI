@@ -12,9 +12,8 @@ from pathlib import Path
 from app.db import get_db
 from app.engagement import compute_engagement_score
 from app.llm import call_llm
+from app.paths import resolve_user_path
 from app.reason_labels import clean_rationale
-
-_PROJECT_ROOT = Path(__file__).parent.parent
 
 MIN_SIGNALS_FOR_UPDATE = 8  # skip if fewer than 8 opens/likes in period
 
@@ -109,10 +108,7 @@ async def _propose_profile_update_inner(
     preview: bool = False,
 ) -> bool:
     # --- Resolve profile path ---
-    resolved_profile = (
-        Path(profile_path) if Path(profile_path).is_absolute()
-        else _PROJECT_ROOT / profile_path
-    )
+    resolved_profile = resolve_user_path(profile_path)
     proposed_path = Path(str(resolved_profile) + ".proposed")
 
     # --- Load current profile ---

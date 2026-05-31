@@ -9,8 +9,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-_PROJECT_ROOT = Path(__file__).parent.parent
-_DEFAULT_DB = _PROJECT_ROOT / "data" / "feeds.db"
+from app.paths import default_db_path
+
+_DEFAULT_DB = default_db_path()
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -27,6 +28,7 @@ CREATE TABLE IF NOT EXISTS sources(
   id INTEGER PRIMARY KEY,
   kind TEXT NOT NULL,
   url TEXT UNIQUE NOT NULL,
+  source_key TEXT,
   title TEXT,
   added_at INTEGER NOT NULL
 );
@@ -54,6 +56,7 @@ CREATE TABLE IF NOT EXISTS items(
   cluster_id INTEGER REFERENCES clusters(id),
   score REAL NOT NULL DEFAULT 0.0,
   rank_rationale TEXT,
+  topic TEXT,
   ranking_status TEXT NOT NULL DEFAULT 'unranked',
   ranking_error TEXT,
   ranked_at INTEGER,
@@ -75,6 +78,17 @@ CREATE TABLE IF NOT EXISTS activity(
   event TEXT NOT NULL,
   dwell_seconds REAL,
   ts INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS source_fetch_health(
+  source_key TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  label TEXT,
+  last_attempted_at INTEGER,
+  last_success_at INTEGER,
+  last_error TEXT,
+  items_fetched INTEGER NOT NULL DEFAULT 0,
+  items_new INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -115,6 +129,7 @@ class Source:
     id: int
     kind: str
     url: str
+    source_key: str | None
     title: str | None
     added_at: int
 
@@ -176,6 +191,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "ALTER TABLE items ADD COLUMN ranking_status TEXT NOT NULL DEFAULT 'unranked'",
         "ALTER TABLE items ADD COLUMN ranking_error TEXT",
         "ALTER TABLE items ADD COLUMN ranked_at INTEGER",
+        "ALTER TABLE sources ADD COLUMN source_key TEXT",
     ]
     for sql in migrations:
         try:
@@ -204,6 +220,11 @@ def init_schema(db_path: Path = _DEFAULT_DB) -> None:
     with get_db(db_path) as conn:
         conn.executescript(_SCHEMA_SQL)
         _migrate(conn)
+        try:
+            from app.search import init_search_schema
+            init_search_schema(conn)
+        except Exception:
+            logger.debug("Search schema initialisation skipped", exc_info=True)
     logger.info("Schema initialised at %s", db_path)
 
 
@@ -241,10 +262,12 @@ def _row_to_item(row: sqlite3.Row) -> Item:
 
 
 def _row_to_source(row: sqlite3.Row) -> Source:
+    keys = row.keys()
     return Source(
         id=row["id"],
         kind=row["kind"],
         url=row["url"],
+        source_key=row["source_key"] if "source_key" in keys else None,
         title=row["title"],
         added_at=row["added_at"],
     )
@@ -254,14 +277,22 @@ def _row_to_source(row: sqlite3.Row) -> Source:
 # Source functions
 # ---------------------------------------------------------------------------
 
-def upsert_source(conn: sqlite3.Connection, kind: str, url: str, title: str | None) -> int:
+def upsert_source(
+    conn: sqlite3.Connection,
+    kind: str,
+    url: str,
+    title: str | None,
+    source_key: str | None = None,
+) -> int:
     """Insert or update source, return id."""
     now = int(time.time())
     def _run():
         conn.execute(
-            "INSERT INTO sources(kind, url, title, added_at) VALUES (?,?,?,?)"
-            " ON CONFLICT(url) DO UPDATE SET kind=excluded.kind, title=COALESCE(excluded.title, title)",
-            (kind, url, title, now),
+            "INSERT INTO sources(kind, url, source_key, title, added_at) VALUES (?,?,?,?,?)"
+            " ON CONFLICT(url) DO UPDATE SET kind=excluded.kind,"
+            " source_key=COALESCE(excluded.source_key, source_key),"
+            " title=COALESCE(excluded.title, title)",
+            (kind, url, source_key, title, now),
         )
         row = conn.execute("SELECT id FROM sources WHERE url=?", (url,)).fetchone()
         return row["id"]
@@ -272,6 +303,93 @@ def get_all_sources(conn: sqlite3.Connection) -> list[Source]:
     """Return all sources."""
     rows = conn.execute("SELECT * FROM sources ORDER BY added_at DESC").fetchall()
     return [_row_to_source(r) for r in rows]
+
+
+def record_source_fetch_attempt(
+    conn: sqlite3.Connection,
+    source_key: str,
+    kind: str,
+    label: str | None,
+) -> None:
+    now = int(time.time())
+
+    def _run():
+        conn.execute(
+            """
+            INSERT INTO source_fetch_health(
+                source_key, kind, label, last_attempted_at, last_error,
+                items_fetched, items_new
+            )
+            VALUES (?, ?, ?, ?, NULL, 0, 0)
+            ON CONFLICT(source_key) DO UPDATE SET
+                kind=excluded.kind,
+                label=excluded.label,
+                last_attempted_at=excluded.last_attempted_at,
+                last_error=NULL,
+                items_fetched=0,
+                items_new=0
+            """,
+            (source_key, kind, label, now),
+        )
+
+    _with_retry(_run)
+
+
+def record_source_fetch_result(
+    conn: sqlite3.Connection,
+    source_key: str,
+    kind: str,
+    label: str | None,
+    items_fetched: int,
+    items_new: int,
+    error: str | None = None,
+) -> None:
+    now = int(time.time())
+    success_at = now if error is None else None
+
+    def _run():
+        conn.execute(
+            """
+            INSERT INTO source_fetch_health(
+                source_key, kind, label, last_attempted_at, last_success_at,
+                last_error, items_fetched, items_new
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source_key) DO UPDATE SET
+                kind=excluded.kind,
+                label=excluded.label,
+                last_success_at=COALESCE(excluded.last_success_at, last_success_at),
+                last_error=excluded.last_error,
+                items_fetched=excluded.items_fetched,
+                items_new=excluded.items_new
+            """,
+            (source_key, kind, label, now, success_at, error, items_fetched, items_new),
+        )
+
+    _with_retry(_run)
+
+
+def get_source_fetch_health(conn: sqlite3.Connection) -> dict[str, dict]:
+    rows = conn.execute(
+        """
+        SELECT source_key, kind, label, last_attempted_at, last_success_at,
+               last_error, items_fetched, items_new
+        FROM source_fetch_health
+        """
+    ).fetchall()
+    return {
+        row["source_key"]: {
+            "source_key": row["source_key"],
+            "kind": row["kind"],
+            "label": row["label"],
+            "last_attempted_at": row["last_attempted_at"],
+            "last_success_at": row["last_success_at"],
+            "last_error": row["last_error"],
+            "items_fetched": row["items_fetched"],
+            "items_new": row["items_new"],
+        }
+        for row in rows
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +420,11 @@ def insert_item_if_new(conn: sqlite3.Connection, **kwargs) -> int | None:
             values,
         )
         if cur.lastrowid and cur.rowcount > 0:
+            try:
+                from app.search import upsert_search_item
+                upsert_search_item(conn, cur.lastrowid)
+            except Exception:
+                logger.debug("Search index update skipped for item %s", cur.lastrowid, exc_info=True)
             return cur.lastrowid
         return None
 
@@ -357,6 +480,11 @@ def update_item_score(
             )
 
     _with_retry(_run)
+    try:
+        from app.search import upsert_search_item
+        upsert_search_item(conn, item_id)
+    except Exception:
+        logger.debug("Search index update skipped for item %s", item_id, exc_info=True)
 
 
 def update_item_rank_failure(

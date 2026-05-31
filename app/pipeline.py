@@ -19,12 +19,16 @@ from app.db import (
     increment_cluster_member,
     init_schema,
     insert_item_if_new,
+    record_source_fetch_attempt,
+    record_source_fetch_result,
     upsert_source,
 )
 from app.dedup import dedup_item
 from app.fetch_engine import FetchEngine
 from app.ingest import fetch_source
+from app.paths import fetch_lock_path, last_fetch_path, resolve_user_path
 from app.rank import rank_items
+from app.source_config import source_key, source_label
 
 
 def _source_identifier(source) -> str:
@@ -46,9 +50,8 @@ def _source_identifier(source) -> str:
         return f"github://{source.repo}"
     return f"{kind}://unknown"
 
-_PROJECT_ROOT = Path(__file__).parent.parent
-_LOCK_FILE = _PROJECT_ROOT / "data" / "fetch.lock"
-_LAST_FETCH_FILE = _PROJECT_ROOT / "data" / "last_fetch.txt"
+_LOCK_FILE = fetch_lock_path()
+_LAST_FETCH_FILE = last_fetch_path()
 
 # Drop items whose published_at is older than this. Protects against feeds
 # (notably OpenAI/Anthropic blogs and arXiv categories) returning their full
@@ -75,6 +78,7 @@ async def run_fetch_cycle(
     profile_path: str = "profile.md",
     db_path: Path | None = None,
     source_filter: str | None = None,  # if set, only fetch this source (by title)
+    source_key_filter: str | None = None,
     dry_run: bool = False,             # if True, fetch but don't write to DB
 ) -> FetchReport:
     """
@@ -99,14 +103,8 @@ async def run_fetch_cycle(
         pass
 
     # --- Resolve paths ---
-    sources_resolved = (
-        Path(sources_path) if Path(sources_path).is_absolute()
-        else _PROJECT_ROOT / sources_path
-    )
-    profile_resolved = (
-        Path(profile_path) if Path(profile_path).is_absolute()
-        else _PROJECT_ROOT / profile_path
-    )
+    sources_resolved = resolve_user_path(sources_path)
+    profile_resolved = resolve_user_path(profile_path)
 
     # --- Resolve DB path ---
     if db_path is None:
@@ -162,24 +160,52 @@ async def run_fetch_cycle(
         try:
             selected_sources = []
             for source in sources:
+                if not getattr(source, "enabled", True):
+                    logger.info("run_fetch_cycle: source disabled; skipping %s", source)
+                    continue
+                if source_key_filter and source_key(source) != source_key_filter:
+                    continue
                 if source_filter and (source.title or "").lower() != source_filter.lower():
                     continue
                 selected_sources.append(source)
 
             report.sources_attempted = len(selected_sources)
+            if not dry_run:
+                for source in selected_sources:
+                    record_source_fetch_attempt(
+                        conn,
+                        source_key(source),
+                        source.kind,
+                        source_label(source),
+                    )
+                conn.commit()
             fetch_results = await FetchEngine(fetch_one=fetch_source).fetch_many(selected_sources)
 
             # --- Per-source insert ---
             for fetch_result in fetch_results:
                 source = fetch_result.source
+                current_source_key = source_key(source)
+                current_source_label = source_label(source)
                 if fetch_result.error is not None:
                     msg = f"fetch_source({source}): {fetch_result.error}"
                     logger.warning("run_fetch_cycle: %s", msg)
                     report.errors.append(msg)
+                    if not dry_run:
+                        record_source_fetch_result(
+                            conn,
+                            current_source_key,
+                            source.kind,
+                            current_source_label,
+                            0,
+                            0,
+                            str(fetch_result.error),
+                        )
+                        conn.commit()
                     continue
 
                 raw_items = fetch_result.items
                 report.items_fetched += len(raw_items)
+                source_items_new = 0
 
                 if dry_run:
                     # In dry_run mode: count items but don't persist
@@ -195,6 +221,7 @@ async def run_fetch_cycle(
                         kind=source.kind,
                         url=_source_identifier(source),
                         title=getattr(source, "title", None),
+                        source_key=current_source_key,
                     )
                 except Exception as exc:
                     logger.warning(
@@ -237,6 +264,7 @@ async def run_fetch_cycle(
 
                     if item_id is not None:
                         report.items_new += 1
+                        source_items_new += 1
 
                         # Dedup check
                         dedup_result = dedup_item(raw_item, recent_items)
@@ -257,6 +285,15 @@ async def run_fetch_cycle(
                             )
                             increment_cluster_member(conn, cluster_id)
 
+                conn.commit()
+                record_source_fetch_result(
+                    conn,
+                    current_source_key,
+                    source.kind,
+                    current_source_label,
+                    len(raw_items),
+                    source_items_new,
+                )
                 conn.commit()
 
                 if items_skipped_age:

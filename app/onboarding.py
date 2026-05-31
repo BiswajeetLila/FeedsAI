@@ -3,13 +3,12 @@ First-run setup helpers for FeedsAI.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import yaml
 
-_PROJECT_ROOT = Path(__file__).parent.parent
-PROFILE_PATH = _PROJECT_ROOT / "profile.md"
-SOURCES_PATH = _PROJECT_ROOT / "sources.yaml"
+from app.paths import profile_path, sources_path
+
+PROFILE_PATH = profile_path()
+SOURCES_PATH = sources_path()
 
 
 def _split_lines(value: str) -> list[str]:
@@ -132,5 +131,7 @@ def build_sources(
 
 
 def write_setup(profile_md: str, sources_yaml: str) -> None:
+    PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SOURCES_PATH.parent.mkdir(parents=True, exist_ok=True)
     PROFILE_PATH.write_text(profile_md, encoding="utf-8")
     SOURCES_PATH.write_text(sources_yaml, encoding="utf-8")

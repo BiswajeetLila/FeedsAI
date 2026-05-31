@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Learning - FeedsAI{% endblock %}
+{% block content %}
+<h2>Learning</h2>
+<p class="meta">What FeedsAI infers from opens, likes, saves, link-outs, and dwell time.</p>
+
+<section class="settings-panel">
+  <h3>Profile update</h3>
+  {% if dashboard.ready_for_profile_update %}
+  <p>Enough signals collected. Preview with:</p>
+  {% else %}
+  <p>{{ dashboard.signals_needed }} more opens or likes needed before a useful profile update.</p>
+  {% endif %}
+  <p><code>python scripts/update_profile.py --preview</code></p>
+</section>
+
+<div class="learning-grid">
+  <section class="settings-panel">
+    <h3>Top topics</h3>
+    {% for row in dashboard.top_topics[:8] %}
+    <p><strong>{{ row.topic }}</strong> <span class="meta">{{ row.engagement_score }} from {{ row.item_count }} items</span></p>
+    {% else %}<p class="meta">No topic signals yet.</p>{% endfor %}
+  </section>
+
+  <section class="settings-panel">
+    <h3>Top sources</h3>
+    {% for row in dashboard.top_sources[:8] %}
+    <p><strong>{{ row.source_title }}</strong> <span class="meta">{{ row.engagement_score }} from {{ row.item_count }} items</span></p>
+    {% else %}<p class="meta">No source signals yet.</p>{% endfor %}
+  </section>
+</div>
+
+<section class="settings-panel">
+  <h3>Liked</h3>
+  {% for item in dashboard.most_liked[:10] %}
+  <p><a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.title }}</a> <span class="meta">{{ item.topic }} &middot; {{ item.engagement_score }}</span></p>
+  {% else %}<p class="meta">No liked items yet.</p>{% endfor %}
+</section>
+
+<section class="settings-panel">
+  <h3>Saved</h3>
+  {% for item in dashboard.most_saved[:10] %}
+  <p><a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.title }}</a> <span class="meta">{{ item.topic }} &middot; {{ item.engagement_score }}</span></p>
+  {% else %}<p class="meta">No saved items yet.</p>{% endfor %}
+</section>
+
+<section class="settings-panel">
+  <h3>Low-signal items</h3>
+  {% for item in dashboard.low_signal_items[:10] %}
+  <p><a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.title }}</a> <span class="meta">{{ item.topic }} &middot; score {{ "%.1f"|format(item.score) }}</span></p>
+  {% else %}<p class="meta">No low-signal items in the current window.</p>{% endfor %}
+</section>
+{% endblock %}

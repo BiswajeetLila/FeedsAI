@@ -312,3 +312,95 @@ async def test_pipeline_populates_sources_table(
     assert source_row["kind"] == "rss"
     assert source_row["url"] == "https://example.com/feed.rss"
     assert source_row["title"] == "Test Feed"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_skips_disabled_sources(tmp_db, tmp_lock, tmp_last_fetch, profile_file, tmp_path):
+    sources_yaml = tmp_path / "sources_disabled.yaml"
+    sources_yaml.write_text(
+        (
+            "schema_version: 1\nsources:\n"
+            "  - kind: rss\n    url: https://disabled.example.com/feed.rss\n"
+            "    title: Disabled Feed\n    enabled: false\n"
+            "  - kind: rss\n    url: https://enabled.example.com/feed.rss\n"
+            "    title: Enabled Feed\n"
+        ),
+        encoding="utf-8",
+    )
+    attempted = []
+
+    def _fetch_side_effect(source):
+        attempted.append(source.title)
+        return [_make_raw_item(50)]
+
+    with (
+        patch("app.pipeline._LOCK_FILE", tmp_lock),
+        patch("app.pipeline._LAST_FETCH_FILE", tmp_last_fetch),
+        patch("app.pipeline.fetch_source", side_effect=_fetch_side_effect),
+        patch("app.rank.call_llm", new=AsyncMock(side_effect=_rank_llm_response)),
+    ):
+        from app.pipeline import run_fetch_cycle
+
+        report = await run_fetch_cycle(
+            sources_path=str(sources_yaml),
+            profile_path=str(profile_file),
+            db_path=tmp_db,
+        )
+
+    assert attempted == ["Enabled Feed"]
+    assert report.sources_attempted == 1
+
+
+@pytest.mark.asyncio
+async def test_pipeline_filters_by_stable_source_key_and_records_health(
+    tmp_db, tmp_lock, tmp_last_fetch, profile_file, tmp_path
+):
+    sources_yaml = tmp_path / "sources_keyed.yaml"
+    sources_yaml.write_text(
+        (
+            "schema_version: 1\nsources:\n"
+            "  - kind: rss\n    url: https://skip.example.com/feed.rss\n"
+            "    title: Skip Feed\n"
+            "  - kind: rss\n    url: https://target.example.com/feed.rss\n"
+            "    title: Target Feed\n"
+        ),
+        encoding="utf-8",
+    )
+    attempted = []
+
+    def _fetch_side_effect(source):
+        attempted.append(source.title)
+        return [_make_raw_item(60)]
+
+    with (
+        patch("app.pipeline._LOCK_FILE", tmp_lock),
+        patch("app.pipeline._LAST_FETCH_FILE", tmp_last_fetch),
+        patch("app.pipeline.fetch_source", side_effect=_fetch_side_effect),
+        patch("app.rank.call_llm", new=AsyncMock(side_effect=_rank_llm_response)),
+    ):
+        from app.pipeline import run_fetch_cycle
+
+        report = await run_fetch_cycle(
+            sources_path=str(sources_yaml),
+            profile_path=str(profile_file),
+            db_path=tmp_db,
+            source_key_filter="rss:https://target.example.com/feed.rss",
+        )
+
+    assert attempted == ["Target Feed"]
+    assert report.sources_attempted == 1
+    assert report.items_fetched == 1
+
+    conn = sqlite3.connect(tmp_db)
+    conn.row_factory = sqlite3.Row
+    try:
+        health = conn.execute(
+            "SELECT items_fetched, items_new, last_error FROM source_fetch_health WHERE source_key=?",
+            ("rss:https://target.example.com/feed.rss",),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert health["items_fetched"] == 1
+    assert health["items_new"] == 1
+    assert health["last_error"] is None

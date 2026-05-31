@@ -13,7 +13,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
-_PROJECT_ROOT = Path(__file__).parent.parent  # app/ -> project root
+from app.paths import resolve_user_path
 
 
 class RSSSource(BaseModel):
@@ -23,6 +23,7 @@ class RSSSource(BaseModel):
     url: HttpUrl  # validates http/https only
     title: str | None = None
     topic: str | None = None
+    enabled: bool = True
 
 
 class HNSource(BaseModel):
@@ -32,6 +33,7 @@ class HNSource(BaseModel):
     filter: Literal["front_page"] = "front_page"
     title: str = "Hacker News"
     topic: str | None = None
+    enabled: bool = True
 
 
 class ArxivSource(BaseModel):
@@ -41,6 +43,7 @@ class ArxivSource(BaseModel):
     query: str
     title: str | None = None
     topic: str | None = None
+    enabled: bool = True
 
     @field_validator("query")
     @classmethod
@@ -57,6 +60,7 @@ class GithubReleasesSource(BaseModel):
     repo: str  # "owner/repo" format
     title: str | None = None
     topic: str | None = None
+    enabled: bool = True
 
     @field_validator("repo")
     @classmethod
@@ -77,14 +81,14 @@ class SourcesFile(BaseModel):
     """Root model for sources.yaml."""
 
     schema_version: int = 1
-    sources: list[SourceConfig] = Field(min_length=1)
+    sources: list[SourceConfig] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True}
 
 
 def load_sources(path: str | Path = "sources.yaml") -> SourcesFile:
     """Load and validate sources.yaml. Raises ValidationError on bad config."""
-    resolved = Path(path) if Path(path).is_absolute() else _PROJECT_ROOT / path
+    resolved = resolve_user_path(path)
     with open(resolved, encoding="utf-8") as f:
         data = yaml.load(f, Loader=yaml.SafeLoader)
     return SourcesFile.model_validate(data)

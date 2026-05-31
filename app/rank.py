@@ -8,15 +8,15 @@ import json
 import logging
 import sqlite3
 from dataclasses import dataclass
-from pathlib import Path
 
 from app.db import Item, update_item_rank_failure, update_item_score
 from app.llm import LLMResult, call_llm
+from app.paths import resource_path
 
 logger = logging.getLogger(__name__)
 
 PROMPT_VERSION = "rank_v1"
-_PROMPT_TEMPLATE = (Path(__file__).parent.parent / "prompts" / "rank_v1.txt").read_text()
+_PROMPT_TEMPLATE = resource_path("prompts", "rank_v1.txt").read_text(encoding="utf-8")
 
 
 @dataclass(frozen=True)

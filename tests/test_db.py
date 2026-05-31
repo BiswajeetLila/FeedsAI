@@ -21,9 +21,12 @@ from app.db import (
     mark_item_read,
     mark_item_saved,
     record_activity,
+    record_source_fetch_attempt,
+    record_source_fetch_result,
     get_config,
     set_config,
     get_or_create_cluster,
+    get_source_fetch_health,
     increment_cluster_member,
     get_recent_items_for_dedup,
 )
@@ -86,7 +89,7 @@ def test_init_schema_creates_all_tables(tmp_path):
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         ).fetchall()
     }
-    expected = {"config", "sources", "clusters", "items", "activity"}
+    expected = {"config", "sources", "clusters", "items", "activity", "source_fetch_health"}
     assert expected.issubset(tables), f"Missing tables: {expected - tables}"
 
     indexes = {
@@ -134,7 +137,13 @@ def test_insert_item_dedup(conn):
 
 def test_upsert_and_get_sources(conn):
     """Insert a source, retrieve it."""
-    sid = upsert_source(conn, kind="rss", url="https://feed.example.com/rss", title="Example Feed")
+    sid = upsert_source(
+        conn,
+        kind="rss",
+        url="https://feed.example.com/rss",
+        title="Example Feed",
+        source_key="rss:https://feed.example.com/rss",
+    )
     conn.commit()
     assert isinstance(sid, int)
 
@@ -143,6 +152,7 @@ def test_upsert_and_get_sources(conn):
     s = sources[0]
     assert s.kind == "rss"
     assert s.url == "https://feed.example.com/rss"
+    assert s.source_key == "rss:https://feed.example.com/rss"
     assert s.title == "Example Feed"
 
     # Upsert same URL with updated title — id must be unchanged
@@ -152,6 +162,36 @@ def test_upsert_and_get_sources(conn):
     sources = get_all_sources(conn)
     assert len(sources) == 1
     assert sources[0].title == "Updated Feed"
+
+
+def test_source_fetch_health_records_last_attempt_result_and_error(conn):
+    record_source_fetch_attempt(conn, "rss:https://example.com/feed.xml", "rss", "Example")
+    record_source_fetch_result(
+        conn,
+        "rss:https://example.com/feed.xml",
+        "rss",
+        "Example",
+        items_fetched=5,
+        items_new=2,
+    )
+    record_source_fetch_attempt(conn, "hn:front_page", "hn", "Hacker News")
+    record_source_fetch_result(
+        conn,
+        "hn:front_page",
+        "hn",
+        "Hacker News",
+        items_fetched=0,
+        items_new=0,
+        error="timeout",
+    )
+    conn.commit()
+
+    health = get_source_fetch_health(conn)
+
+    assert health["rss:https://example.com/feed.xml"]["items_fetched"] == 5
+    assert health["rss:https://example.com/feed.xml"]["items_new"] == 2
+    assert health["rss:https://example.com/feed.xml"]["last_error"] is None
+    assert health["hn:front_page"]["last_error"] == "timeout"
 
 
 # ---------------------------------------------------------------------------

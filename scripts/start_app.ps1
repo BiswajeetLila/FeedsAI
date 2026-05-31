@@ -35,17 +35,21 @@ if ($LASTEXITCODE -ne 0) {
     }
 }
 
+$StartUrl = (& $Python -c "from app.launcher import choose_start_url; print(choose_start_url($Port))").Trim()
+$LaunchMessage = & $Python -c "from app.launcher import build_launch_message; print(build_launch_message('$StartUrl'))"
+
 if (-not (Test-Server)) {
-    Write-Host "Starting FeedsAI on $Url ..."
+    Write-Host "Starting FeedsAI..."
+    Write-Host $LaunchMessage
     if (-not $NoBrowser) {
-        Start-Process "$Url"
+        Start-Process "$StartUrl"
     }
-    Write-Host "Server window stays open while FeedsAI is running. Close it to stop."
     & $Python -m uvicorn app.main:app --host 127.0.0.1 --port $Port
     exit $LASTEXITCODE
 } else {
-    Write-Host "FeedsAI is running: $Url"
+    Write-Host "FeedsAI is already running."
+    Write-Host $LaunchMessage
     if (-not $NoBrowser) {
-        Start-Process "$Url"
+        Start-Process "$StartUrl"
     }
 }

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Search - FeedsAI{% endblock %}
+{% block content %}
+<h2>Search</h2>
+<form class="search-page-form" method="get" action="/search">
+  <input name="q" value="{{ q }}" placeholder="Search title, excerpt, topic, source, rationale">
+  <label class="check-row"><input type="checkbox" name="saved" value="1" {% if saved %}checked{% endif %}> Saved only</label>
+  <label class="check-row"><input type="checkbox" name="unread" value="1" {% if unread %}checked{% endif %}> Unread only</label>
+  <button class="primary-btn" type="submit">Search</button>
+</form>
+
+{% if q %}
+<p class="meta">{{ results|length }} results for "{{ q }}"</p>
+{% endif %}
+
+<div class="search-results">
+  {% for item in results %}
+  <article class="search-result">
+    <h3><a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.title }}</a></h3>
+    <p class="meta">{{ item.source_title or "unknown" }}{% if item.topic %} &middot; {{ item.topic }}{% endif %} &middot; score {{ "%.1f"|format(item.score) }}</p>
+    {% if item.excerpt %}<p>{{ item.excerpt }}</p>{% endif %}
+  </article>
+  {% endfor %}
+</div>
+{% endblock %}

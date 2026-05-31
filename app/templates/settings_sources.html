@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Source Settings - FeedsAI{% endblock %}
+{% block content %}
+<h2>Source Settings</h2>
+<p class="meta">Add, pause, or remove feeds. Source quality remains on <a href="/sources">/sources</a>.</p>
+
+{% if error %}<div class="stale-banner">{{ error }}</div>{% endif %}
+
+<section class="settings-panel">
+  <h3>Add Source</h3>
+  <form class="inline-form" method="post" action="/settings/sources/add">
+    <select name="kind">
+      <option value="rss">RSS</option>
+      <option value="hn">Hacker News</option>
+      <option value="arxiv">arXiv</option>
+      <option value="github_releases">GitHub releases</option>
+    </select>
+    <input name="value" placeholder="URL, arXiv query, or owner/repo">
+    <input name="title" placeholder="Optional title">
+    <button class="primary-btn" type="submit">Add</button>
+  </form>
+</section>
+
+<section class="settings-panel">
+  <h3>Current Sources</h3>
+  {% if not sources %}
+  <p class="meta">No sources configured.</p>
+  {% else %}
+  <div class="source-settings-list">
+    {% for source in sources %}
+    <div class="source-settings-row">
+      <div>
+        <strong>{{ source.title or source.url or source.repo or source.query or "Hacker News" }}</strong>
+        <div class="meta"><code>{{ source.kind }}</code> {{ source.url or source.repo or source.query or source.filter }}</div>
+        <div class="meta source-health">
+          {% if source.health.last_attempted_at %}
+            Last test {{ source.health.last_attempted_at_label }}
+            {% if source.health.last_error %}
+              <span class="health-bad">failed</span> <code>{{ source.health.last_error }}</code>
+            {% else %}
+              <span class="health-good">ok</span>
+              {{ source.health.items_fetched }} fetched, {{ source.health.items_new }} new
+            {% endif %}
+          {% else %}
+            Not fetched yet
+          {% endif %}
+        </div>
+      </div>
+      <form method="post" action="/settings/sources/fetch">
+        <input type="hidden" name="key" value="{{ source.key }}">
+        <button class="quality-toggle" type="submit" {% if not source.enabled %}disabled{% endif %}>Fetch now</button>
+      </form>
+      <form method="post" action="/settings/sources/toggle">
+        <input type="hidden" name="key" value="{{ source.key }}">
+        <input type="hidden" name="enabled" value="{% if source.enabled %}false{% else %}true{% endif %}">
+        <button class="quality-toggle" type="submit">{% if source.enabled %}Pause{% else %}Enable{% endif %}</button>
+      </form>
+      <form method="post" action="/settings/sources/remove">
+        <input type="hidden" name="key" value="{{ source.key }}">
+        <button class="quality-toggle danger" type="submit">Remove</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

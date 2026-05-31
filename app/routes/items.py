@@ -17,11 +17,62 @@ from app.db import (
     record_activity,
 )
 from app.engagement import VALID_EVENTS
+from app.explain import build_item_explanation
 from app.summarize import build_item_insight
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _cluster_size(conn, item) -> int | None:
+    if item.cluster_id is None:
+        return None
+    row = conn.execute(
+        "SELECT member_count FROM clusters WHERE id=?",
+        (item.cluster_id,),
+    ).fetchone()
+    return int(row["member_count"]) if row else None
+
+
+def _render_why_panel(explanation: dict) -> str:
+    rows = [
+        ("Score", f"{explanation['score']:.1f}/10 - {explanation['tier_label']}"),
+    ]
+    if explanation.get("topic"):
+        rows.append(("Topic", explanation["topic"]))
+    if explanation.get("source_quality_score") is not None:
+        rows.append(("Source quality", f"{explanation['source_quality_score']:.1f}"))
+    if explanation.get("cluster_size") and explanation["cluster_size"] > 1:
+        rows.append(("Related items", str(explanation["cluster_size"])))
+    if explanation.get("rationale"):
+        rows.append(("Rationale", explanation["rationale"]))
+
+    row_html = "".join(
+        f"<div><span>{html.escape(label)}</span><strong>{html.escape(value)}</strong></div>"
+        for label, value in rows
+    )
+
+    def chips(values, class_name=""):
+        return "".join(
+            f'<span class="reason-chip {class_name}">{html.escape(value)}</span>'
+            for value in values
+            if value
+        )
+
+    matched = chips(explanation.get("matched_interests", []), "match")
+    reasons = chips(explanation.get("reason_chips", []))
+    novelty = chips([explanation.get("novelty_label")], "novelty")
+    flags = chips(explanation.get("low_signal_flags", []), "caution")
+
+    return f"""
+    <details class="why-panel">
+      <summary>Why am I seeing this?</summary>
+      <div class="why-grid">{row_html}</div>
+      {f'<div class="reason-row">{matched}</div>' if matched else ''}
+      {f'<div class="reason-row">{novelty}{reasons}{flags}</div>' if (novelty or reasons or flags) else ''}
+    </details>
+    """
 
 
 @router.get("/item/{item_id}/summary", response_class=HTMLResponse)
@@ -33,6 +84,8 @@ async def item_summary(item_id: int):
             return HTMLResponse("<p>Item not found.</p>", status_code=404)
 
         body, points = build_item_insight(item)
+        cluster_size = _cluster_size(conn, item)
+        explanation = build_item_explanation(conn, item, cluster_size=cluster_size)
         mark_item_read(conn, item_id)
 
     escaped_body = html.escape(body)
@@ -43,10 +96,12 @@ async def item_summary(item_id: int):
     saved_label = "&#9733; Saved" if item.is_saved else "&#9734; Save"
 
     bullets = "".join(f"<li>{p}</li>" for p in escaped_points)
+    why_panel = _render_why_panel(explanation)
     html_content = f"""
     <div class="summary-content">
         <p>{escaped_body}</p>
         {"<ul>" + bullets + "</ul>" if bullets else ""}
+        {why_panel}
         <div class="drawer-actions">
             <button class="{liked_class}" data-item-id="{item_id}"
                     onclick="likeArticle({item_id}, this)">

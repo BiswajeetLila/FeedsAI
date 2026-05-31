@@ -5,14 +5,14 @@ Lifespan startup logic for FeedsAI.
 import asyncio
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
+
+from app.paths import last_fetch_path
 
 logger = logging.getLogger(__name__)
 
 _fetch_task: asyncio.Task | None = None
 
-_PROJECT_ROOT = Path(__file__).parent.parent
-_LAST_FETCH_FILE = _PROJECT_ROOT / "data" / "last_fetch.txt"
+_LAST_FETCH_FILE = last_fetch_path()
 STALE_THRESHOLD_SECONDS = 7200  # 2 hours
 
 

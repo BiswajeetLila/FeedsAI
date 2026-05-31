@@ -62,6 +62,7 @@
       padding: 4px 10px; background: #fff;
     }
     .quality-toggle:hover { background: #f3f4f6; }
+    .quality-toggle:disabled { opacity: 0.55; cursor: default; }
     .quality-note {
       display: inline-block; margin-left: 0.5rem;
       color: #6b7280; font-weight: 600;
@@ -97,6 +98,15 @@
     .summary-content p { margin-bottom: 0.75rem; font-size: 0.9rem; line-height: 1.6; }
     .summary-content ul { padding-left: 1.25rem; margin-bottom: 0.75rem; }
     .summary-content li { font-size: 0.9rem; margin-bottom: 0.25rem; }
+    .why-panel {
+      border: 1px solid #e5e7eb; border-radius: 8px; padding: 0.65rem 0.8rem;
+      margin: 0.75rem 0; background: #f9fafb;
+    }
+    .why-panel summary { cursor: pointer; font-weight: 700; font-size: 0.86rem; }
+    .why-grid { display: grid; gap: 0.4rem; margin-top: 0.6rem; }
+    .why-grid div { display: grid; grid-template-columns: 110px 1fr; gap: 0.65rem; font-size: 0.82rem; }
+    .why-grid span { color: #6b7280; }
+    .reason-chip.match { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
     .read-original { font-size: 0.85rem; color: #2563eb; text-decoration: none; }
     .read-original:hover { text-decoration: underline; }
     .headline-link { margin-left: auto; flex-shrink: 0; }
@@ -114,6 +124,10 @@
       text-align: center; padding: 3rem 1rem; color: #888;
     }
     .empty-state code { background: #f1f5f9; padding: 2px 6px; border-radius: 3px; }
+    .empty-actions {
+      display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;
+      margin-top: 1rem;
+    }
 
     /* Status page */
     .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
@@ -287,6 +301,48 @@
     .source-list { padding-left: 1.3rem; }
     .source-list li { margin-bottom: 0.45rem; }
     .source-list .meta { display: block; }
+    .header-search { display: flex; align-items: center; gap: 0.35rem; margin-left: 1rem; }
+    .header-search input {
+      width: 150px; border: 1px solid #d1d5db; border-radius: 6px;
+      padding: 3px 7px; font: inherit; font-size: 0.82rem;
+    }
+    .header-search button {
+      border: 1px solid #d1d5db; background: #fff; border-radius: 6px;
+      padding: 3px 8px; cursor: pointer; font-size: 0.82rem;
+    }
+    .search-page-form {
+      display: grid; grid-template-columns: 1fr auto auto auto; gap: 0.5rem;
+      align-items: center; margin: 1rem 0;
+    }
+    .search-page-form input[name="q"] {
+      border: 1px solid #d1d5db; border-radius: 6px;
+      padding: 0.6rem 0.7rem; font: inherit;
+    }
+    .search-results { display: grid; gap: 0.75rem; margin-top: 1rem; }
+    .search-result {
+      background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
+      padding: 0.85rem 1rem;
+    }
+    .search-result h3 { font-size: 1rem; margin-bottom: 0.2rem; }
+    .settings-panel {
+      background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
+      padding: 1rem; margin-top: 1rem;
+    }
+    .settings-panel h3 { margin-bottom: 0.6rem; }
+    .inline-form { display: grid; grid-template-columns: 150px 1fr 1fr auto; gap: 0.5rem; align-items: center; }
+    .inline-form input, .inline-form select {
+      border: 1px solid #d1d5db; border-radius: 6px; padding: 0.55rem 0.65rem; font: inherit;
+    }
+    .source-settings-list { display: grid; gap: 0.5rem; }
+    .source-settings-row {
+      display: grid; grid-template-columns: 1fr auto auto auto; gap: 0.5rem; align-items: center;
+      border-top: 1px solid #f3f4f6; padding-top: 0.5rem;
+    }
+    .quality-toggle.danger { color: #991b1b; border-color: #fecaca; }
+    .source-health { margin-top: 0.2rem; }
+    .health-good { color: #166534; font-weight: 700; }
+    .health-bad { color: #991b1b; font-weight: 700; }
+    .learning-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 
     /* Mobile: < 600px */
     @media (max-width: 600px) {
@@ -298,9 +354,14 @@
       .topic-tabs { gap: 0.3rem; }
       .tab { font-size: 0.72rem; padding: 3px 10px; }
       .form-grid { grid-template-columns: 1fr; }
+      .inline-form, .source-settings-row { grid-template-columns: 1fr; }
+      .learning-grid { grid-template-columns: 1fr; }
       header { align-items: flex-start; gap: 0.75rem; }
       header nav { display: flex; flex-wrap: wrap; gap: 0.6rem; justify-content: flex-end; }
       header nav a { margin-left: 0; }
+      .header-search { width: 100%; margin-left: 0; }
+      .header-search input { flex: 1; width: auto; }
+      .search-page-form { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -311,10 +372,17 @@
       <nav>
         <a href="/">Home</a>
         <a href="/ask">Ask</a>
+        <a href="/search">Search</a>
+        <a href="/learning">Learning</a>
         <a href="/sources">Sources</a>
+        <a href="/settings/sources">Settings</a>
         <a href="/setup">Setup</a>
         <a href="/status">Status</a>
         <a href="/logs">Logs</a>
+        <form class="header-search" method="get" action="/search">
+          <input name="q" placeholder="Search">
+          <button type="submit">Go</button>
+        </form>
       </nav>
     </header>
     {% block content %}{% endblock %}

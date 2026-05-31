@@ -6,6 +6,7 @@ can verify the server is alive and healthy without leaving the browser.
 """
 import asyncio
 import logging
+import shutil
 import subprocess
 import time
 from datetime import datetime
@@ -16,6 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app import observability
 from app.db import get_all_sources, get_db
 from app.onboarding import setup_required
+from app.paths import data_dir, user_root
 from app.startup import _LAST_FETCH_FILE, is_data_stale
 from app.templates_config import templates
 
@@ -128,6 +130,12 @@ def _collect() -> dict:
         "last_request_status": req.last_status or "—",
         "status_by_code": dict(req.by_status),
         "llm_stats": observability.llm_snapshot(),
+        "llm_availability": {
+            "claude": shutil.which("claude") or "",
+            "gemini": shutil.which("gemini") or "",
+        },
+        "user_root": str(user_root()),
+        "data_dir": str(data_dir()),
         "fetch_in_progress": fs.in_progress,
         "fetch_started": fetch_started_dt,
         "fetch_finished": fetch_finished_dt,

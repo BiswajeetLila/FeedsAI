@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.pipeline import run_fetch_cycle
+from app.paths import data_dir
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -24,8 +25,8 @@ def _setup_logging(verbose: bool) -> None:
     logging.basicConfig(level=level, format=fmt)
 
     # Rotating file handler — rotates at midnight, keeps 30 days
-    log_dir = Path(__file__).parent.parent / "logs"
-    log_dir.mkdir(exist_ok=True)
+    log_dir = data_dir() / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"fetch-{date.today().isoformat()}.log"
 
     file_handler = logging.handlers.TimedRotatingFileHandler(
@@ -38,6 +39,7 @@ def _setup_logging(verbose: bool) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fetch and rank feeds")
     parser.add_argument("--source", help="Fetch only this source (by title)")
+    parser.add_argument("--source-key", help="Fetch only this source by stable key")
     parser.add_argument("--dry-run", action="store_true", help="Fetch but don't write to DB")
     parser.add_argument("--verbose", action="store_true", help="Debug logging")
     args = parser.parse_args()
@@ -46,6 +48,7 @@ def main() -> None:
 
     report = asyncio.run(run_fetch_cycle(
         source_filter=args.source,
+        source_key_filter=args.source_key,
         dry_run=args.dry_run,
     ))
     if args.dry_run:
